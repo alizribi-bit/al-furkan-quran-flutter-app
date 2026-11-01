@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../core/theme/zen_theme.dart';
 import '../core/audio/audio_player_service.dart';
+import '../core/quran/surah_data.dart';
 
 enum MaskingMode { visible, blurred, hidden }
 
@@ -44,46 +45,19 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
   String _reciterPattern =
       'https://everyayah.com/data/Husary_Muallim_128kbps/{surah:03d}{ayah:03d}.mp3';
 
+  // Loaded verses from dynamic JSON
+  List<Map<String, dynamic>> _loadedVerses = [];
+  bool _isLoadingVerses = false;
+
   // State from AudioPlayerService
   HifzSessionState _sessionState = const HifzSessionState();
-
-  // Multi-Riwayah Surah Al-Fatihah verses
-  static const Map<String, List<Map<String, dynamic>>> _riwayahAyahs = {
-    'hafs': [
-      {'num': 1, 'text': 'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ'},
-      {'num': 2, 'text': 'ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ'},
-      {'num': 3, 'text': 'ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ'},
-      {'num': 4, 'text': 'مَـٰلِكِ يَوْمِ ٱلدِّينِ'},
-      {'num': 5, 'text': 'إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ'},
-      {'num': 6, 'text': 'ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ'},
-      {'num': 7, 'text': 'صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ'},
-    ],
-    'qalun': [
-      {'num': 1, 'text': 'اِ۬لْحَمْدُ لِلهِ رَبِّ اِ۬لْعَٰلَمِينَ'},
-      {'num': 2, 'text': 'اِ۬لرَّحْمَٰنِ اِ۬لرَّحِيمِ'},
-      {'num': 3, 'text': 'مَٰلِكِ يَوْمِ اِ۬لدِّينِ'},
-      {'num': 4, 'text': 'إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ'},
-      {'num': 5, 'text': 'اِ۬هْدِنَا اِ۬لصِّرَٰطَ اِ۬لْمُسْتَقِيمَ'},
-      {'num': 6, 'text': 'صِرَٰطَ اِ۬لَّذِينَ أَنْعَمْتَ عَلَيْهِمْ'},
-      {'num': 7, 'text': 'غَيْرِ اِ۬لْمَغْضُوبِ عَلَيْهِمْ وَلَا اِ۬لضَّآلِّينَ'},
-    ],
-    'warsh': [
-      {'num': 1, 'text': 'اِ۬لْحَمْدُ لِلهِ رَبِّ اِ۬لْعَٰلَمِينَ'},
-      {'num': 2, 'text': 'اِ۬لرَّحْمَٰنِ اِ۬لرَّحِيمِ'},
-      {'num': 3, 'text': 'مَلِكِ يَوْمِ اِ۬لدِّينِ'},
-      {'num': 4, 'text': 'إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ'},
-      {'num': 5, 'text': 'اِ۬هْدِنَا اِ۬لصِّرَٰطَ اِ۬لْمُسْتَقِيمَ'},
-      {'num': 6, 'text': 'صِرَٰطَ اِ۬لَّذِينَ أَنْعَمْتَ عَلَيْهِمْ'},
-      {'num': 7, 'text': 'غَيْرِ اِ۬لْمَغْضُوبِ عَلَيْهِمْ وَلَا اِ۬لضَّآلِّينَ'},
-    ],
-  };
-
-  List<Map<String, dynamic>> get _sampleAyahs =>
-      _riwayahAyahs[_riwayah] ?? _riwayahAyahs['hafs']!;
+  final Map<int, Timer> _peekTimers = {};
 
   @override
   void initState() {
     super.initState();
+    _loadVerses();
+
     // Subscribe to AudioPlayerService events to track loop counting and delay
     _sessionSub = _audioPlayer.sessionStateStream.listen((state) {
       if (!mounted) return;
@@ -98,7 +72,25 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     });
   }
 
-  final Map<int, Timer> _peekTimers = {};
+  Future<void> _loadVerses() async {
+    setState(() => _isLoadingVerses = true);
+    try {
+      final verses = await QuranScriptService.getVersesForSurah(
+        surahNumber: _surah,
+        riwayah: _riwayah,
+      );
+      if (mounted) {
+        setState(() {
+          _loadedVerses = verses;
+          _isLoadingVerses = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoadingVerses = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -210,6 +202,138 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     _audioPlayer.stop();
   }
 
+  void _openSurahPickerModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
+    final sageColor = isDark ? ZenTheme.darkSage : ZenTheme.lightSage;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? ZenTheme.darkSurface : ZenTheme.lightSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setPickerState) {
+            final filteredSurahs = QuranSurahs.list.where((s) {
+              if (searchQuery.trim().isEmpty) return true;
+              final q = searchQuery.trim().toLowerCase();
+              return s.nameAr.contains(q) ||
+                  s.nameEn.toLowerCase().contains(q) ||
+                  s.number.toString().contains(q);
+            }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              padding: const EdgeInsets.only(top: 20, left: 20, right: 20),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'اختر السورة الكريمة (114 سورة)',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    onChanged: (val) => setPickerState(() => searchQuery = val),
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      hintText: 'ابحث باسم السورة أو رقمها...',
+                      prefixIcon: Icon(Icons.search, color: sageColor),
+                      filled: true,
+                      fillColor: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filteredSurahs.length,
+                      itemBuilder: (context, idx) {
+                        final s = filteredSurahs[idx];
+                        final isSelected = s.number == _surah;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? sageColor.withValues(alpha: 0.15)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected ? sageColor : Colors.transparent,
+                            ),
+                          ),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: isSelected
+                                  ? sageColor
+                                  : (isDark ? Colors.white12 : Colors.black12),
+                              child: Text(
+                                '${s.number}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSelected ? Colors.white : textColor,
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              'سورة ${s.nameAr}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${s.nameEn} • ${s.versesCount} آية • ${s.revelationType == 'Meccan' ? 'مكية' : 'مدنية'}',
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                            trailing: isSelected
+                                ? Icon(Icons.check_circle, color: sageColor)
+                                : null,
+                            onTap: () {
+                              Navigator.pop(context);
+                              setState(() {
+                                _surah = s.number;
+                                _startAyah = 1;
+                                _endAyah = s.versesCount >= 7 ? 7 : s.versesCount;
+                              });
+                              _loadVerses();
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _openSetupModalSheet() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
@@ -225,7 +349,10 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return Padding(
+            final currentSurahInfo = QuranSurahs.getByNumber(_surah);
+            final maxAyah = currentSurahInfo.versesCount;
+
+            return SingleChildScrollView(
               padding: EdgeInsets.only(
                 left: 24,
                 right: 24,
@@ -240,7 +367,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'إعدادات جلسة التكرار',
+                        'إعدادات جلسة التكرار المتقن',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -253,7 +380,109 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+
+                  // Surah selector card
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: sageColor.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'السورة الحالية',
+                              style: TextStyle(fontSize: 11, color: sageColor),
+                            ),
+                            Text(
+                              '${currentSurahInfo.number}. سورة ${currentSurahInfo.nameAr}',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _openSurahPickerModal();
+                          },
+                          icon: const Icon(Icons.swap_horiz, size: 18),
+                          label: const Text('تغيير السورة'),
+                          style: TextButton.styleFrom(foregroundColor: sageColor),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
+
+                  // Ayah Range Selector
+                  Text(
+                    'نطاق الآيات للحفظ (من $_startAyah إلى $_endAyah)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('من الآية: $_startAyah', style: TextStyle(fontSize: 12, color: textColor)),
+                            Slider(
+                              value: _startAyah.toDouble().clamp(1.0, _endAyah.toDouble()),
+                              min: 1,
+                              max: maxAyah.toDouble(),
+                              divisions: maxAyah > 1 ? maxAyah - 1 : 1,
+                              activeColor: sageColor,
+                              onChanged: (v) {
+                                final val = v.round();
+                                if (val <= _endAyah) {
+                                  setSheetState(() => _startAyah = val);
+                                  setState(() => _startAyah = val);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('إلى الآية: $_endAyah', style: TextStyle(fontSize: 12, color: textColor)),
+                            Slider(
+                              value: _endAyah.toDouble().clamp(_startAyah.toDouble(), maxAyah.toDouble()),
+                              min: 1,
+                              max: maxAyah.toDouble(),
+                              divisions: maxAyah > 1 ? maxAyah - 1 : 1,
+                              activeColor: sageColor,
+                              onChanged: (v) {
+                                final val = v.round();
+                                if (val >= _startAyah) {
+                                  setSheetState(() => _endAyah = val);
+                                  setState(() => _endAyah = val);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
 
                   // Riwayah Selector (Hafs | Qalun | Warsh)
                   Text(
@@ -296,6 +525,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                                       'https://everyayah.com/data/Warsh_Dossary_128kbps/{surah:03d}{ayah:03d}.mp3';
                                 }
                               });
+                              _loadVerses();
                             },
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
@@ -597,7 +827,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
                   ElevatedButton(
                     onPressed: () {
@@ -639,6 +869,24 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     final currentLoop = _sessionState.currentLoop;
     final totalLoops = _sessionState.totalLoops;
 
+    final currentSurahInfo = QuranSurahs.getByNumber(_surah);
+
+    // Display verses: either loaded from JSON or fallback
+    final displayedAyahs = _loadedVerses.isNotEmpty
+        ? _loadedVerses.where((a) {
+            final num = a['num'] as int;
+            return num >= _startAyah && num <= _endAyah;
+          }).toList()
+        : [
+            {'num': 1, 'text': 'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ'},
+            {'num': 2, 'text': 'ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ'},
+            {'num': 3, 'text': 'ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ'},
+            {'num': 4, 'text': 'مَـٰلِكِ يَوْمِ ٱلدِّينِ'},
+            {'num': 5, 'text': 'إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ'},
+            {'num': 6, 'text': 'ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ'},
+            {'num': 7, 'text': 'صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ'},
+          ];
+
     return Scaffold(
       body: Stack(
         children: [
@@ -651,27 +899,40 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'سورة الفاتحة',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
-                            ),
+                      InkWell(
+                        onTap: _openSurahPickerModal,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'سورة ${currentSurahInfo.nameAr}',
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(Icons.keyboard_arrow_down, color: sageColor, size: 24),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'الآيات $_startAyah - $_endAyah • مصحف ${_riwayah == 'hafs' ? 'حفص' : _riwayah == 'qalun' ? 'قالون' : 'ورش'} • ${_repetitionMode == HifzRepetitionMode.combinedBlock ? 'تكرار مجمع ($_blockRepeat×)' : 'تكرار فردي'}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: sageColor,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'الآيات $_startAyah - $_endAyah • مصحف ${_riwayah == 'hafs' ? 'حفص' : _riwayah == 'qalun' ? 'قالون' : 'ورش'} • ${_repetitionMode == HifzRepetitionMode.combinedBlock ? 'تكرار مجمع ($_blockRepeat×)' : 'تكرار فردي'}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: sageColor,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                       IconButton(
                         icon: Icon(Icons.tune, color: sageColor),
@@ -683,128 +944,136 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                // Verses list
-                ..._sampleAyahs.map((ayah) {
-                  final ayahNum = ayah['num'] as int;
-                  final isCurrent = (isPlaying || isPaused) && currentAyah == ayahNum;
-                  final isPeeked = _peekedAyahs.contains(ayahNum);
+                if (_isLoadingVerses)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: CircularProgressIndicator(),
+                    ),
+                  )
+                else
+                  // Verses list
+                  ...displayedAyahs.map((ayah) {
+                    final ayahNum = ayah['num'] as int;
+                    final isCurrent = (isPlaying || isPaused) && currentAyah == ayahNum;
+                    final isPeeked = _peekedAyahs.contains(ayahNum);
 
-                  Widget verseContent;
-                  if (_maskingMode == MaskingMode.hidden && !isPeeked && !isCurrent) {
-                    verseContent = const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        '••••••••••••••••••••••••••••••••',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          letterSpacing: 4,
-                          fontSize: 20,
-                          color: Colors.grey,
+                    Widget verseContent;
+                    if (_maskingMode == MaskingMode.hidden && !isPeeked && !isCurrent) {
+                      verseContent = const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          '••••••••••••••••••••••••••••••••',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            letterSpacing: 4,
+                            fontSize: 20,
+                            color: Colors.grey,
+                          ),
                         ),
-                      ),
-                    );
-                  } else if (_maskingMode == MaskingMode.blurred && !isCurrent && !isPeeked) {
-                    verseContent = ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
-                      child: Text(
+                      );
+                    } else if (_maskingMode == MaskingMode.blurred && !isCurrent && !isPeeked) {
+                      verseContent = ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
+                        child: Text(
+                          ayah['text'] as String,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: _fontSize,
+                            height: 2.1,
+                            color: textColor,
+                          ),
+                        ),
+                      );
+                    } else {
+                      verseContent = Text(
                         ayah['text'] as String,
                         textAlign: TextAlign.right,
                         style: TextStyle(
                           fontSize: _fontSize,
                           height: 2.1,
-                          color: textColor,
-                        ),
-                      ),
-                    );
-                  } else {
-                    verseContent = Text(
-                      ayah['text'] as String,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: _fontSize,
-                        height: 2.1,
-                        color: isCurrent
-                            ? sageColor
-                            : (isPeeked ? (isDark ? ZenTheme.darkSage : ZenTheme.lightSage) : textColor),
-                        fontWeight: (isCurrent || isPeeked) ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    );
-                  }
-
-                  return GestureDetector(
-                    onTap: () => _peekAyah(ayahNum),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: isCurrent
-                            ? sageColor.withValues(alpha: 0.12)
-                            : (isPeeked
-                                ? sageColor.withValues(alpha: 0.15)
-                                : (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02))),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
                           color: isCurrent
                               ? sageColor
-                              : (isPeeked ? sageColor : Colors.transparent),
-                          width: (isCurrent || isPeeked) ? 2 : 1,
+                              : (isPeeked ? (isDark ? ZenTheme.darkSage : ZenTheme.lightSage) : textColor),
+                          fontWeight: (isCurrent || isPeeked) ? FontWeight.bold : FontWeight.normal,
                         ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              CircleAvatar(
-                                radius: 13,
-                                backgroundColor: isCurrent
-                                    ? sageColor
-                                    : (isPeeked ? sageColor : (isDark ? Colors.white12 : Colors.black12)),
-                                child: Text(
-                                  '$ayahNum',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: (isCurrent || isPeeked) ? Colors.white : textColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              if (isCurrent && isDelaying)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: sageColor.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                      );
+                    }
+
+                    return GestureDetector(
+                      onTap: () => _peekAyah(ayahNum),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isCurrent
+                              ? sageColor.withValues(alpha: 0.12)
+                              : (isPeeked
+                                  ? sageColor.withValues(alpha: 0.15)
+                                  : (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02))),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: isCurrent
+                                ? sageColor
+                                : (isPeeked ? sageColor : Colors.transparent),
+                            width: (isCurrent || isPeeked) ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                CircleAvatar(
+                                  radius: 13,
+                                  backgroundColor: isCurrent
+                                      ? sageColor
+                                      : (isPeeked ? sageColor : (isDark ? Colors.white12 : Colors.black12)),
                                   child: Text(
-                                    'مهلة الترديد: ${_sessionState.delayRemainingSeconds}ث',
+                                    '$ayahNum',
                                     style: TextStyle(
                                       fontSize: 11,
+                                      color: (isCurrent || isPeeked) ? Colors.white : textColor,
                                       fontWeight: FontWeight.bold,
-                                      color: sageColor,
                                     ),
                                   ),
-                                )
-                              else if (_maskingMode != MaskingMode.visible)
-                                Text(
-                                  isPeeked ? 'كشف مؤقت (2.5ث)' : 'انقر للكشف',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: isPeeked ? sageColor : Colors.grey,
-                                    fontWeight: isPeeked ? FontWeight.bold : FontWeight.normal,
-                                  ),
                                 ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          verseContent,
-                        ],
+                                if (isCurrent && isDelaying)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: sageColor.withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      'مهلة الترديد: ${_sessionState.delayRemainingSeconds}ث',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: sageColor,
+                                      ),
+                                    ),
+                                  )
+                                else if (_maskingMode != MaskingMode.visible)
+                                  Text(
+                                    isPeeked ? 'كشف مؤقت (2.5ث)' : 'انقر للكشف',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isPeeked ? sageColor : Colors.grey,
+                                      fontWeight: isPeeked ? FontWeight.bold : FontWeight.normal,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            verseContent,
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  }),
                 const SizedBox(height: 120), // Spacing for floating control pill
               ],
             ),
@@ -848,8 +1117,8 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                               isPlaying || isPaused
                                   ? (_sessionState.isGroupPhase
                                       ? 'المجموعة المترابطة • تكرار ${_sessionState.groupLoop}/${_sessionState.totalGroupLoops}'
-                                      : 'آية $_surah:$currentAyah • تكرار $currentLoop/$totalLoops')
-                                  : 'الفاتحة ($_startAyah - $_endAyah)',
+                                      : 'آية ${currentSurahInfo.nameAr}:$currentAyah • تكرار $currentLoop/$totalLoops')
+                                  : '${currentSurahInfo.nameAr} ($_startAyah - $_endAyah)',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
