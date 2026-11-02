@@ -1,18 +1,20 @@
-import { HifzSessionConfig, HifzPlaybackState } from '../types/hifz';
+import { HifzSessionConfig, HifzPlaybackState, GoldenLoopPhase } from '../types/hifz';
 import { HIFZ_RECITERS, buildAudioUrl, getFallbackAudioUrl } from '../data/hifzReciters';
 
 export type HifzStateCallback = (state: HifzPlaybackState) => void;
 export type HifzCompleteCallback = () => void;
 export type HifzErrorCallback = (error: string) => void;
 
-interface PlaylistItem {
+export interface PlaylistItem {
   surah: number;
   ayah: number;
   type: 'single' | 'link' | 'block';
+  phase: GoldenLoopPhase;
   loopIndex: number;
   totalLoops: number;
   description: string;
   isEndOfPassage: boolean;
+  activeSpan?: number[];
 }
 
 export class HifzAudioEngine {
@@ -20,6 +22,7 @@ export class HifzAudioEngine {
   private config: HifzSessionConfig | null = null;
   private isRunning: boolean = false;
   private isPaused: boolean = false;
+  private isTestingPhaseD: boolean = false;
   private playlist: PlaylistItem[] = [];
   private currentIndex: number = 0;
   private silenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -45,7 +48,6 @@ export class HifzAudioEngine {
 
   private resetAudioElement() {
     if (!this.audio) return;
-    // Detach handlers before removing source to prevent unwanted error events
     this.audio.onended = null;
     this.audio.onerror = null;
     this.audio.pause();
@@ -53,7 +55,6 @@ export class HifzAudioEngine {
     this.audio.removeAttribute('src');
     this.audio.load();
 
-    // Re-attach handlers cleanly
     this.audio.onended = () => this.handleAudioEnded();
     this.audio.onerror = (e) => this.handleAudioError(e);
   }
@@ -68,21 +69,102 @@ export class HifzAudioEngine {
     this.onError = onError;
   }
 
-  public startSession(config: HifzSessionConfig) {
+  public startSession(config: HifzSessionConfig, startAtPhase?: GoldenLoopPhase) {
     this.stopSession();
     this.config = config;
     this.isRunning = true;
     this.isPaused = false;
     this.isFallbackAttempted = false;
+    this.isTestingPhaseD = false;
     this.buildPlaylist();
+
+    if (startAtPhase === 'phase_d_active_test') {
+      this.enterPhaseD();
+      return;
+    }
 
     if (this.playlist.length === 0) {
       this.onError?.('قائمة التكرار فارغة');
       return;
     }
 
-    this.currentIndex = 0;
+    if (startAtPhase) {
+      const targetIdx = this.playlist.findIndex((item) => item.phase === startAtPhase);
+      this.currentIndex = targetIdx !== -1 ? targetIdx : 0;
+    } else {
+      this.currentIndex = 0;
+    }
+
     this.playCurrentItem();
+  }
+
+  public jumpToPhase(phase: GoldenLoopPhase) {
+    if (!this.isRunning && this.config) {
+      this.startSession(this.config, phase);
+      return;
+    }
+    if (!this.config) return;
+
+    if (phase === 'phase_d_active_test') {
+      this.enterPhaseD();
+      return;
+    }
+
+    this.isTestingPhaseD = false;
+    if (this.silenceTimer) {
+      clearInterval(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+
+    const targetIdx = this.playlist.findIndex((item) => item.phase === phase);
+    if (targetIdx !== -1) {
+      this.currentIndex = targetIdx;
+      this.playCurrentItem();
+    }
+  }
+
+  public enterPhaseD() {
+    if (!this.config) return;
+    this.resetAudioElement();
+    if (this.silenceTimer) {
+      clearInterval(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+    this.isTestingPhaseD = true;
+
+    this.onStateChange?.({
+      isActive: true,
+      isPaused: false,
+      isFocusMode: true,
+      currentAyahNumber: this.config.startAyah,
+      currentLoopIndex: 1,
+      totalLoopsForCurrentStage: 1,
+      currentStageDescription: 'المرحلة (د): اختبار الاسترجاع النشط والتسميع الذاتي غيباً',
+      isSilencePause: false,
+      silenceRemainingSeconds: 0,
+      currentPhase: 'phase_d_active_test',
+      isTestingPhaseD: true,
+      phaseProgress: {
+        phaseACompleted: true,
+        phaseBCompleted: true,
+        phaseCCompleted: true,
+        phaseDCompleted: false,
+        currentPhaseNumber: 4,
+        overallProgressPercent: 95,
+      },
+    });
+  }
+
+  public completeActiveTest(passed: boolean) {
+    if (passed) {
+      this.isRunning = false;
+      this.isTestingPhaseD = false;
+      this.stopSession();
+      this.onComplete?.();
+    } else {
+      // Re-consolidate passage starting from Phase C
+      this.jumpToPhase('phase_c_consolidation');
+    }
   }
 
   public pause() {
@@ -128,6 +210,7 @@ export class HifzAudioEngine {
   public stopSession() {
     this.isRunning = false;
     this.isPaused = false;
+    this.isTestingPhaseD = false;
     this.isFallbackAttempted = false;
     this.resetAudioElement();
 
@@ -148,6 +231,8 @@ export class HifzAudioEngine {
       currentStageDescription: '',
       isSilencePause: false,
       silenceRemainingSeconds: 0,
+      currentPhase: undefined,
+      isTestingPhaseD: false,
     });
   }
 
@@ -171,23 +256,25 @@ export class HifzAudioEngine {
     }
     if (verses.length === 0) return;
 
-    // Mode 1: The Golden Loop (Phase A Mastery -> Phase B Chain Link -> Phase C Consolidation)
+    // Mode 1: The Golden Loop (Phase A Mastery -> Phase B Chain Link -> Phase C Consolidation -> Phase D Active Test)
     if (repetitionMode === 'golden_loop') {
       const singleLoops = Math.max(1, singleRepeatCount || 5);
       const chainLoops = Math.max(1, linkGroupRepeatCount || 2);
       const blockLoops = Math.max(1, blockRepeatCount || 3);
 
-      // Phase A: Individual Verse Mastery
+      // Phase A: Individual Verse Mastery (التثبيت الفردي)
       for (const v of verses) {
         for (let r = 1; r <= singleLoops; r++) {
           this.playlist.push({
             surah: surahNumber,
             ayah: v,
             type: 'single',
+            phase: 'phase_a_mastery',
             loopIndex: r,
             totalLoops: singleLoops,
             description: `المرحلة (أ): إتقان الآية ${v} • تكرار ${r} من ${singleLoops}`,
             isEndOfPassage: true,
+            activeSpan: [v],
           });
         }
       }
@@ -205,10 +292,12 @@ export class HifzAudioEngine {
                 surah: surahNumber,
                 ayah: cv,
                 type: 'link',
+                phase: 'phase_b_chain_link',
                 loopIndex: lr,
                 totalLoops: chainLoops,
                 description: `المرحلة (ب): الربط التراكمي (${chainLabel}) • دورة ${lr} من ${chainLoops} • آية ${cv}`,
                 isEndOfPassage: isEndOfChain,
+                activeSpan: chainVerses,
               });
             });
           }
@@ -224,10 +313,12 @@ export class HifzAudioEngine {
             surah: surahNumber,
             ayah: bv,
             type: 'block',
+            phase: 'phase_c_consolidation',
             loopIndex: br,
             totalLoops: blockLoops,
-            description: `المرحلة (ج): تثبيت المقطع مجمعاً (${blockLabel}) • دورة ${br} من ${blockLoops} • آية ${bv}`,
+            description: `المرحلة (جـ): تثبيت المقطع مجمعاً (${blockLabel}) • دورة ${br} من ${blockLoops} • آية ${bv}`,
             isEndOfPassage: isEndOfBlock,
+            activeSpan: verses,
           });
         });
       }
@@ -242,10 +333,12 @@ export class HifzAudioEngine {
             surah: surahNumber,
             ayah: v,
             type: 'block',
+            phase: 'phase_c_consolidation',
             loopIndex: r,
             totalLoops: loops,
             description: `المقطع المجمع (${blockLabel}) • دورة ${r} من ${loops} • آية ${v}`,
             isEndOfPassage: isEndOfBlock,
+            activeSpan: verses,
           });
         });
       }
@@ -257,10 +350,12 @@ export class HifzAudioEngine {
             surah: surahNumber,
             ayah: v,
             type: 'single',
+            phase: 'phase_a_mastery',
             loopIndex: r,
             totalLoops: singleRepeatCount,
             description: `آية ${v} • تكرار ${r} من ${singleRepeatCount}`,
             isEndOfPassage: true,
+            activeSpan: [v],
           });
         }
       }
@@ -278,10 +373,12 @@ export class HifzAudioEngine {
                   surah: surahNumber,
                   ayah: gv,
                   type: 'link',
+                  phase: 'phase_b_chain_link',
                   loopIndex: lr,
                   totalLoops: linkGroupRepeatCount,
                   description: `ربط الآيات (${groupLabel}) • دورة ${lr} من ${linkGroupRepeatCount} • آية ${gv}`,
                   isEndOfPassage: isEndOfGroup,
+                  activeSpan: group,
                 });
               });
             }
@@ -294,6 +391,10 @@ export class HifzAudioEngine {
   private playCurrentItem(isFallback: boolean = false) {
     if (!this.isRunning || !this.config) return;
     if (this.currentIndex >= this.playlist.length) {
+      if (this.config.repetitionMode === 'golden_loop' && !this.isTestingPhaseD) {
+        this.enterPhaseD();
+        return;
+      }
       this.isRunning = false;
       this.stopSession();
       this.onComplete?.();
@@ -381,12 +482,10 @@ export class HifzAudioEngine {
   }
 
   private handleAudioError(e: string | Event) {
-    // If audio element is reset, paused, or no longer has a source, ignore
     if (!this.isRunning || !this.audio || !this.audio.getAttribute('src')) {
       return;
     }
 
-    // Ignore aborted requests (e.g. user pressed pause or skipped)
     if (this.audio.error && this.audio.error.code === 1) {
       return;
     }
@@ -399,7 +498,6 @@ export class HifzAudioEngine {
       return;
     }
 
-    // Gracefully advance to next item after small delay without breaking the user session
     setTimeout(() => {
       if (this.isRunning) {
         this.currentIndex++;
@@ -410,9 +508,51 @@ export class HifzAudioEngine {
   }
 
   private emitState(isSilence: boolean, silenceRemaining: number) {
-    if (!this.isRunning) return;
+    if (!this.isRunning || !this.config) return;
+
+    if (this.isTestingPhaseD) {
+      this.onStateChange?.({
+        isActive: true,
+        isPaused: this.isPaused,
+        isFocusMode: true,
+        currentAyahNumber: this.config.startAyah,
+        currentLoopIndex: 1,
+        totalLoopsForCurrentStage: 1,
+        currentStageDescription: 'المرحلة (د): اختبار الاسترجاع النشط والتسميع الذاتي غيباً',
+        isSilencePause: false,
+        silenceRemainingSeconds: 0,
+        currentPhase: 'phase_d_active_test',
+        isTestingPhaseD: true,
+        phaseProgress: {
+          phaseACompleted: true,
+          phaseBCompleted: true,
+          phaseCCompleted: true,
+          phaseDCompleted: false,
+          currentPhaseNumber: 4,
+          overallProgressPercent: 95,
+        },
+      });
+      return;
+    }
+
     const currentItem = this.playlist[this.currentIndex];
     if (!currentItem) return;
+
+    const isGolden = this.config.repetitionMode === 'golden_loop';
+    let currentPhaseNumber = 1;
+    if (currentItem.phase === 'phase_b_chain_link') currentPhaseNumber = 2;
+    else if (currentItem.phase === 'phase_c_consolidation') currentPhaseNumber = 3;
+    else if (currentItem.phase === 'phase_d_active_test') currentPhaseNumber = 4;
+
+    const phaseACompleted = currentPhaseNumber > 1;
+    const phaseBCompleted = currentPhaseNumber > 2;
+    const phaseCCompleted = currentPhaseNumber > 3;
+
+    const totalSteps = this.playlist.length + (isGolden ? 1 : 0);
+    const overallProgressPercent = Math.min(
+      95,
+      Math.max(5, Math.round(((this.currentIndex + 1) / totalSteps) * 100))
+    );
 
     this.onStateChange?.({
       isActive: true,
@@ -424,6 +564,17 @@ export class HifzAudioEngine {
       currentStageDescription: currentItem.description,
       isSilencePause: isSilence,
       silenceRemainingSeconds: silenceRemaining,
+      currentPhase: currentItem.phase,
+      isTestingPhaseD: false,
+      phaseProgress: {
+        phaseACompleted,
+        phaseBCompleted,
+        phaseCCompleted,
+        phaseDCompleted: false,
+        currentPhaseNumber,
+        activeVersesSpan: currentItem.activeSpan,
+        overallProgressPercent,
+      },
     });
   }
 }

@@ -42,9 +42,20 @@ export interface HifzPlaybackState {
   currentAyahNumber: number;
   currentLoopIndex: number;
   totalLoopsForCurrentStage: number;
-  currentStageDescription: string; // e.g. "آية 255 • تكرار 3 من 5" or "ربط مجموعة (1-3) • تكرار 2 من 3"
+  currentStageDescription: string; // e.g. "المرحلة (أ): إتقان الآية 1 • تكرار 2 من 5"
   isSilencePause: boolean;
   silenceRemainingSeconds: number;
+  currentPhase?: GoldenLoopPhase;
+  isTestingPhaseD?: boolean;
+  phaseProgress?: {
+    phaseACompleted: boolean;
+    phaseBCompleted: boolean;
+    phaseCCompleted: boolean;
+    phaseDCompleted: boolean;
+    currentPhaseNumber: number; // 1: A, 2: B, 3: C, 4: D
+    activeVersesSpan?: number[]; // e.g. [1, 2, 3] for Phase B chaining or [1, 2, 3, 4] for Phase C
+    overallProgressPercent: number; // 0 to 100
+  };
 }
 
 export interface HalaqaParticipant {

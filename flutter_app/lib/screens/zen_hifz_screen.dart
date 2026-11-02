@@ -276,6 +276,76 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     );
   }
 
+  Widget _buildPhaseStepItem({
+    required String letter,
+    required String title,
+    required String subtitle,
+    required bool isActive,
+    required bool isCompleted,
+    required Color sageColor,
+    required Color textColor,
+  }) {
+    const successColor = Color(0xFF2E7D32);
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive
+              ? sageColor.withValues(alpha: 0.15)
+              : isCompleted
+              ? successColor.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isActive
+                ? sageColor
+                : isCompleted
+                ? successColor.withValues(alpha: 0.5)
+                : Colors.grey.withValues(alpha: 0.2),
+            width: isActive ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: isCompleted
+                    ? successColor
+                    : isActive
+                    ? sageColor
+                    : Colors.grey.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: isCompleted
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : Text(
+                        letter,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isActive ? Colors.white : textColor,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor),
+            ),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Modal to choose Reciter (الشيخ / القارئ المعتمد) with filters & pedagogical notes
   void _openReciterPickerModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1757,6 +1827,110 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                   ),
                   const SizedBox(height: 16),
                 ],
+
+                // 4-PHASE GOLDEN LOOP PROGRESS STEPPER
+                if (_repetitionMode == HifzRepetitionMode.goldenLoop)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? ZenTheme.darkSurface : ZenTheme.lightSurface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: sageColor.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.layers, size: 16, color: sageColor),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'محرك الحلقة الذهبية (٤ مراحل)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (isPlaying || isPaused || isTesting)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: sageColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  _sessionState.phase == GoldenLoopPhase.phaseAMastery
+                                      ? 'المرحلة أ: تثبيت فردي'
+                                      : _sessionState.phase == GoldenLoopPhase.phaseBChainLink
+                                      ? 'المرحلة ب: ربط تراكمي'
+                                      : _sessionState.phase == GoldenLoopPhase.phaseCConsolidation
+                                      ? 'المرحلة جـ: دمج نهائي'
+                                      : 'المرحلة د: تسميع نشط',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: sageColor,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _buildPhaseStepItem(
+                              letter: 'أ',
+                              title: 'التثبيت',
+                              subtitle: '$_singleRepeat× آية',
+                              isActive: _sessionState.phase == GoldenLoopPhase.phaseAMastery,
+                              isCompleted: _sessionState.phase == GoldenLoopPhase.phaseBChainLink ||
+                                  _sessionState.phase == GoldenLoopPhase.phaseCConsolidation ||
+                                  isTesting,
+                              sageColor: sageColor,
+                              textColor: textColor,
+                            ),
+                            const SizedBox(width: 6),
+                            _buildPhaseStepItem(
+                              letter: 'ب',
+                              title: 'الربط',
+                              subtitle: '$_linkGroupRepeat× تراكمي',
+                              isActive: _sessionState.phase == GoldenLoopPhase.phaseBChainLink,
+                              isCompleted: _sessionState.phase == GoldenLoopPhase.phaseCConsolidation || isTesting,
+                              sageColor: sageColor,
+                              textColor: textColor,
+                            ),
+                            const SizedBox(width: 6),
+                            _buildPhaseStepItem(
+                              letter: 'جـ',
+                              title: 'الدمج',
+                              subtitle: '$_blockRepeat× كامل',
+                              isActive: _sessionState.phase == GoldenLoopPhase.phaseCConsolidation,
+                              isCompleted: isTesting,
+                              sageColor: sageColor,
+                              textColor: textColor,
+                            ),
+                            const SizedBox(width: 6),
+                            _buildPhaseStepItem(
+                              letter: 'د',
+                              title: 'التسميع',
+                              subtitle: 'استرجاع غيباً',
+                              isActive: isTesting || _sessionState.phase == GoldenLoopPhase.phaseDActiveTest,
+                              isCompleted: false,
+                              sageColor: sageColor,
+                              textColor: textColor,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
 
                 // PHASE D ACTIVE TEST BANNER
                 if (isTesting)
