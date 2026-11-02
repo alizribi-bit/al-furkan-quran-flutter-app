@@ -25,8 +25,8 @@ export function App() {
       try {
         const parsed = JSON.parse(saved);
         return {
-          repetitionMode: 'combined_block',
-          blockRepeatCount: 5,
+          repetitionMode: 'golden_loop',
+          blockRepeatCount: 4,
           ...parsed,
         };
       } catch (_) {}
@@ -35,11 +35,11 @@ export function App() {
       surahNumber: 1, // Al-Fatihah
       startAyah: 1,
       endAyah: 7,
-      repetitionMode: 'combined_block',
-      blockRepeatCount: 5,
-      singleRepeatCount: 10,
+      repetitionMode: 'golden_loop',
+      blockRepeatCount: 4,
+      singleRepeatCount: 5,
       linkGroupSize: 3,
-      linkGroupRepeatCount: 3,
+      linkGroupRepeatCount: 2,
       pauseDelaySeconds: 4,
       riwayah: 'hafs',
       reciterId: 'husary_muallim',

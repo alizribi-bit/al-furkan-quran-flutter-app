@@ -1,6 +1,11 @@
-export type Riwayah = 'hafs' | 'qalun' | 'warsh';
+export type Riwayah = 'hafs' | 'qalun' | 'warsh' | 'duri';
 export type MaskingMode = 'visible' | 'blurred' | 'hidden';
-export type RepetitionMode = 'verse_by_verse' | 'combined_block';
+export type RepetitionMode = 'golden_loop' | 'combined_block' | 'verse_by_verse';
+export type GoldenLoopPhase =
+  | 'phase_a_mastery'
+  | 'phase_b_chain_link'
+  | 'phase_c_consolidation'
+  | 'phase_d_active_test';
 
 export interface HifzReciter {
   id: string;

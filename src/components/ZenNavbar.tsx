@@ -27,6 +27,7 @@ export const ZenNavbar: React.FC<ZenNavbarProps> = ({
     hafs: 'رواية حفص',
     qalun: 'رواية قالون',
     warsh: 'رواية ورش',
+    duri: 'رواية الدوري',
   };
 
   return (

@@ -3,6 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'silent_wav_generator.dart';
 
+enum GoldenLoopPhase {
+  idle,
+  phaseAMastery,      // Phase A: Individual Verse Mastery (آية بآية)
+  phaseBChainLink,    // Phase B: Cumulative Chain Linking (الربط التراكمي)
+  phaseCConsolidation,// Phase C: Full Block Consolidation (تثبيت المقطع مجمعاً)
+  phaseDActiveTest,   // Phase D: Silent Active Recall Test (التسميع الذاتي)
+}
+
 /// Tag attached to each item in the AudioSource playlist for precise progress tracking
 class AyahPlaybackTag {
   final int surah;
@@ -10,9 +18,10 @@ class AyahPlaybackTag {
   final int loopIndex;
   final int totalLoops;
   final bool isSilence;
-  final bool isGroupPhase;
-  final int groupLoopIndex;
-  final int totalGroupLoops;
+  final GoldenLoopPhase phase;
+  final String phaseLabel;
+  final int chainStep;
+  final int totalChainSteps;
 
   const AyahPlaybackTag({
     required this.surah,
@@ -20,30 +29,35 @@ class AyahPlaybackTag {
     required this.loopIndex,
     required this.totalLoops,
     required this.isSilence,
-    this.isGroupPhase = false,
-    this.groupLoopIndex = 1,
-    this.totalGroupLoops = 1,
+    this.phase = GoldenLoopPhase.phaseAMastery,
+    this.phaseLabel = '',
+    this.chainStep = 1,
+    this.totalChainSteps = 1,
   });
 
   @override
   String toString() {
-    return 'Tag(surah: $surah, ayah: $ayah, loop: $loopIndex/$totalLoops, silence: $isSilence, group: $isGroupPhase)';
+    return 'Tag(surah: $surah, ayah: $ayah, loop: $loopIndex/$totalLoops, silence: $isSilence, phase: $phase)';
   }
 }
 
-enum HifzRepetitionMode { verseByVerse, combinedBlock }
+enum HifzRepetitionMode {
+  goldenLoop,   // The complete 4-phase pedagogical loop (A + B + C + D)
+  combinedBlock,// Continuous repetition of the full block
+  verseByVerse, // Simple repeat per verse
+}
 
 /// Repetition configuration for Zen Hifz memorization session
 class HifzVerseConfig {
   final int surah;
   final int startAyah;
   final int endAyah;
-  final HifzRepetitionMode repetitionMode; // combinedBlock or verseByVerse
-  final int blockRepeatCount; // loops for combined block
-  final int singleRepeatCount; // N: repeats per verse
-  final int linkGroupRepeat;   // M: repeats for entire group
-  final int pauseDelaySeconds; // X: silence duration for user to recite from memory
-  final double playbackSpeed;   // 0.75, 1.0, 1.25, 1.5
+  final HifzRepetitionMode repetitionMode; // goldenLoop, combinedBlock, or verseByVerse
+  final int blockRepeatCount; // M: loops for combined block consolidation
+  final int singleRepeatCount;// N: repeats per individual verse
+  final int linkGroupRepeat;  // L: repeats for chain linking steps
+  final int pauseDelaySeconds;// X: silence duration for user to recite from memory
+  final double playbackSpeed; // 0.75, 1.0, 1.25, 1.5
   final String reciterCdnPattern;
   final String fallbackCdnPattern;
 
@@ -51,10 +65,10 @@ class HifzVerseConfig {
     required this.surah,
     required this.startAyah,
     required this.endAyah,
-    this.repetitionMode = HifzRepetitionMode.combinedBlock,
-    this.blockRepeatCount = 5,
-    this.singleRepeatCount = 10,
-    this.linkGroupRepeat = 3,
+    this.repetitionMode = HifzRepetitionMode.goldenLoop,
+    this.blockRepeatCount = 4,
+    this.singleRepeatCount = 5,
+    this.linkGroupRepeat = 2,
     this.pauseDelaySeconds = 4,
     this.playbackSpeed = 1.0,
     this.reciterCdnPattern =
@@ -70,6 +84,7 @@ enum HifzPlaybackStatus {
   playing,
   paused,
   delaying,
+  testing, // Phase D active testing mode
   completed,
   error,
 }
@@ -80,9 +95,10 @@ class HifzSessionState {
   final int currentAyah;
   final int currentLoop;
   final int totalLoops;
-  final bool isGroupPhase;
-  final int groupLoop;
-  final int totalGroupLoops;
+  final GoldenLoopPhase phase;
+  final String phaseLabel;
+  final int chainStep;
+  final int totalChainSteps;
   final bool isDelaying;
   final int delayRemainingSeconds;
   final String? errorMessage;
@@ -92,10 +108,11 @@ class HifzSessionState {
     this.currentSurah = 1,
     this.currentAyah = 1,
     this.currentLoop = 1,
-    this.totalLoops = 10,
-    this.isGroupPhase = false,
-    this.groupLoop = 1,
-    this.totalGroupLoops = 1,
+    this.totalLoops = 5,
+    this.phase = GoldenLoopPhase.idle,
+    this.phaseLabel = '',
+    this.chainStep = 1,
+    this.totalChainSteps = 1,
     this.isDelaying = false,
     this.delayRemainingSeconds = 0,
     this.errorMessage,
@@ -105,6 +122,7 @@ class HifzSessionState {
       status == HifzPlaybackStatus.playing || status == HifzPlaybackStatus.delaying;
   bool get isPaused => status == HifzPlaybackStatus.paused;
   bool get isIdle => status == HifzPlaybackStatus.idle;
+  bool get isTesting => status == HifzPlaybackStatus.testing;
 
   HifzSessionState copyWith({
     HifzPlaybackStatus? status,
@@ -112,9 +130,10 @@ class HifzSessionState {
     int? currentAyah,
     int? currentLoop,
     int? totalLoops,
-    bool? isGroupPhase,
-    int? groupLoop,
-    int? totalGroupLoops,
+    GoldenLoopPhase? phase,
+    String? phaseLabel,
+    int? chainStep,
+    int? totalChainSteps,
     bool? isDelaying,
     int? delayRemainingSeconds,
     String? errorMessage,
@@ -125,9 +144,10 @@ class HifzSessionState {
       currentAyah: currentAyah ?? this.currentAyah,
       currentLoop: currentLoop ?? this.currentLoop,
       totalLoops: totalLoops ?? this.totalLoops,
-      isGroupPhase: isGroupPhase ?? this.isGroupPhase,
-      groupLoop: groupLoop ?? this.groupLoop,
-      totalGroupLoops: totalGroupLoops ?? this.totalGroupLoops,
+      phase: phase ?? this.phase,
+      phaseLabel: phaseLabel ?? this.phaseLabel,
+      chainStep: chainStep ?? this.chainStep,
+      totalChainSteps: totalChainSteps ?? this.totalChainSteps,
       isDelaying: isDelaying ?? this.isDelaying,
       delayRemainingSeconds: delayRemainingSeconds ?? this.delayRemainingSeconds,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -150,6 +170,7 @@ class AudioPlayerService {
   StreamSubscription<SequenceState?>? _sequenceSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
   Timer? _delayCountdownTimer;
+  HifzVerseConfig? _activeConfig;
 
   AudioPlayerService() {
     _initListeners();
@@ -179,17 +200,29 @@ class AudioPlayerService {
     _playerStateSubscription = _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         _stopDelayTimer();
-        _emitState(_currentState.copyWith(
-          status: HifzPlaybackStatus.completed,
-          isDelaying: false,
-        ));
+        // If golden loop mode, transition to Phase D (active test) before completion
+        if (_activeConfig?.repetitionMode == HifzRepetitionMode.goldenLoop) {
+          _emitState(_currentState.copyWith(
+            status: HifzPlaybackStatus.testing,
+            phase: GoldenLoopPhase.phaseDActiveTest,
+            phaseLabel: 'المرحلة (د): التسميع والاسترجاع الذاتي',
+            isDelaying: false,
+          ));
+        } else {
+          _emitState(_currentState.copyWith(
+            status: HifzPlaybackStatus.completed,
+            isDelaying: false,
+          ));
+        }
       } else if (state.processingState == ProcessingState.ready) {
         if (state.playing) {
-          if (!_currentState.isDelaying) {
+          if (!_currentState.isDelaying && _currentState.status != HifzPlaybackStatus.testing) {
             _emitState(_currentState.copyWith(status: HifzPlaybackStatus.playing));
           }
         } else {
-          _emitState(_currentState.copyWith(status: HifzPlaybackStatus.paused));
+          if (_currentState.status != HifzPlaybackStatus.testing) {
+            _emitState(_currentState.copyWith(status: HifzPlaybackStatus.paused));
+          }
         }
       }
     });
@@ -204,9 +237,10 @@ class AudioPlayerService {
         currentAyah: tag.ayah,
         currentLoop: tag.loopIndex,
         totalLoops: tag.totalLoops,
-        isGroupPhase: tag.isGroupPhase,
-        groupLoop: tag.groupLoopIndex,
-        totalGroupLoops: tag.totalGroupLoops,
+        phase: tag.phase,
+        phaseLabel: tag.phaseLabel,
+        chainStep: tag.chainStep,
+        totalChainSteps: tag.totalChainSteps,
         isDelaying: true,
       ));
     } else {
@@ -217,9 +251,10 @@ class AudioPlayerService {
         currentAyah: tag.ayah,
         currentLoop: tag.loopIndex,
         totalLoops: tag.totalLoops,
-        isGroupPhase: tag.isGroupPhase,
-        groupLoop: tag.groupLoopIndex,
-        totalGroupLoops: tag.totalGroupLoops,
+        phase: tag.phase,
+        phaseLabel: tag.phaseLabel,
+        chainStep: tag.chainStep,
+        totalChainSteps: tag.totalChainSteps,
         isDelaying: false,
         delayRemainingSeconds: 0,
       ));
@@ -228,7 +263,7 @@ class AudioPlayerService {
 
   void _startDelayTimer() {
     _stopDelayTimer();
-    int remaining = 4;
+    int remaining = _activeConfig?.pauseDelaySeconds ?? 4;
     _delayCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (remaining > 0) {
         remaining--;
@@ -250,9 +285,10 @@ class AudioPlayerService {
     return pattern.replaceAll('{surah:03d}', sStr).replaceAll('{ayah:03d}', aStr);
   }
 
-  /// Builds a gapless sequence with N single repeats, M group links, and silent WAV delays
+  /// Builds a gapless sequence respecting the selected repetition mode
   Future<void> prepareAndPlay(HifzVerseConfig config) async {
     try {
+      _activeConfig = config;
       _stopDelayTimer();
       _emitState(_currentState.copyWith(
         status: HifzPlaybackStatus.preparing,
@@ -260,9 +296,14 @@ class AudioPlayerService {
         currentAyah: config.startAyah,
         currentLoop: 1,
         totalLoops: config.singleRepeatCount,
-        isGroupPhase: false,
-        groupLoop: 1,
-        totalGroupLoops: config.linkGroupRepeat,
+        phase: config.repetitionMode == HifzRepetitionMode.goldenLoop
+            ? GoldenLoopPhase.phaseAMastery
+            : GoldenLoopPhase.phaseCConsolidation,
+        phaseLabel: config.repetitionMode == HifzRepetitionMode.goldenLoop
+            ? 'المرحلة (أ): إتقان الآية منفردة'
+            : (config.repetitionMode == HifzRepetitionMode.combinedBlock
+                ? 'تكرار المقطع مجمعاً'
+                : 'تكرار آية بآية'),
       ));
 
       final sources = <AudioSource>[];
@@ -276,107 +317,189 @@ class AudioPlayerService {
         silentSource = AudioSource.file(silentFile.path);
       }
 
-      if (config.repetitionMode == HifzRepetitionMode.combinedBlock) {
-        // Combined block mode: repeats whole selected block consecutively N times
-        for (int bLoop = 1; bLoop <= config.blockRepeatCount; bLoop++) {
-          for (int a = config.startAyah; a <= config.endAyah; a++) {
-            final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
-            final blockAyahTag = AyahPlaybackTag(
-              surah: config.surah,
-              ayah: a,
-              loopIndex: bLoop,
-              totalLoops: config.blockRepeatCount,
-              isSilence: false,
-              isGroupPhase: true,
-              groupLoopIndex: bLoop,
-              totalGroupLoops: config.blockRepeatCount,
-            );
-            sources.add(AudioSource.uri(Uri.parse(url), tag: blockAyahTag));
-          }
+      if (config.repetitionMode == HifzRepetitionMode.goldenLoop) {
+        // =====================================================================
+        // THE GOLDEN LOOP PEDAGOGICAL SPECIFICATION (الحلقة الذهبية المتقنة)
+        // =====================================================================
 
-          if (silentSource != null) {
-            final blockSilenceTag = AyahPlaybackTag(
-              surah: config.surah,
-              ayah: config.endAyah,
-              loopIndex: bLoop,
-              totalLoops: config.blockRepeatCount,
-              isSilence: true,
-              isGroupPhase: true,
-              groupLoopIndex: bLoop,
-              totalGroupLoops: config.blockRepeatCount,
-            );
-            sources.add(AudioSource.uri(
-              (silentSource as UriAudioSource).uri,
-              tag: blockSilenceTag,
-            ));
-          }
-        }
-      } else {
-        // 1. Single Verses Repetition (N times each)
+        // --- PHASE A: INDIVIDUAL VERSE MASTERY (إتقان الآيات منفردة) ---
         for (int a = config.startAyah; a <= config.endAyah; a++) {
-          final primaryUrl = _formatUrl(config.reciterCdnPattern, config.surah, a);
-
+          final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
           for (int loop = 1; loop <= config.singleRepeatCount; loop++) {
-            final ayahTag = AyahPlaybackTag(
-              surah: config.surah,
-              ayah: a,
-              loopIndex: loop,
-              totalLoops: config.singleRepeatCount,
-              isSilence: false,
-              isGroupPhase: false,
-            );
-
-            sources.add(AudioSource.uri(Uri.parse(primaryUrl), tag: ayahTag));
-
-            if (silentSource != null) {
-              final silenceTag = AyahPlaybackTag(
+            sources.add(AudioSource.uri(
+              Uri.parse(url),
+              tag: AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
                 loopIndex: loop,
                 totalLoops: config.singleRepeatCount,
-                isSilence: true,
-                isGroupPhase: false,
-              );
+                isSilence: false,
+                phase: GoldenLoopPhase.phaseAMastery,
+                phaseLabel: 'المرحلة (أ): إتقان الآية $a منفردة',
+              ),
+            ));
+
+            if (silentSource != null) {
               sources.add(AudioSource.uri(
                 (silentSource as UriAudioSource).uri,
-                tag: silenceTag,
+                tag: AyahPlaybackTag(
+                  surah: config.surah,
+                  ayah: a,
+                  loopIndex: loop,
+                  totalLoops: config.singleRepeatCount,
+                  isSilence: true,
+                  phase: GoldenLoopPhase.phaseAMastery,
+                  phaseLabel: 'المرحلة (أ): ردد الآية $a من الذاكرة',
+                ),
               ));
             }
           }
         }
 
-        // 2. Linked Group Repetition (M times over the whole range)
-        if (config.linkGroupRepeat > 0 && config.endAyah > config.startAyah) {
-          for (int gLoop = 1; gLoop <= config.linkGroupRepeat; gLoop++) {
-            for (int a = config.startAyah; a <= config.endAyah; a++) {
-              final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
-              final groupAyahTag = AyahPlaybackTag(
+        // --- PHASE B: CUMULATIVE CHAIN LINKING (الربط التراكمي العثماني) ---
+        if (config.endAyah > config.startAyah && config.linkGroupRepeat > 0) {
+          final totalSteps = config.endAyah - config.startAyah;
+          int stepCount = 0;
+
+          for (int endChain = config.startAyah + 1; endChain <= config.endAyah; endChain++) {
+            stepCount++;
+            for (int lLoop = 1; lLoop <= config.linkGroupRepeat; lLoop++) {
+              for (int a = config.startAyah; a <= endChain; a++) {
+                final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
+                sources.add(AudioSource.uri(
+                  Uri.parse(url),
+                  tag: AyahPlaybackTag(
+                    surah: config.surah,
+                    ayah: a,
+                    loopIndex: lLoop,
+                    totalLoops: config.linkGroupRepeat,
+                    isSilence: false,
+                    phase: GoldenLoopPhase.phaseBChainLink,
+                    phaseLabel: 'المرحلة (ب): الربط التراكمي (${config.startAyah} إلى $endChain)',
+                    chainStep: stepCount,
+                    totalChainSteps: totalSteps,
+                  ),
+                ));
+              }
+
+              // Silence gap after chain link
+              if (silentSource != null) {
+                sources.add(AudioSource.uri(
+                  (silentSource as UriAudioSource).uri,
+                  tag: AyahPlaybackTag(
+                    surah: config.surah,
+                    ayah: endChain,
+                    loopIndex: lLoop,
+                    totalLoops: config.linkGroupRepeat,
+                    isSilence: true,
+                    phase: GoldenLoopPhase.phaseBChainLink,
+                    phaseLabel: 'المرحلة (ب): ردد السلسلة (${config.startAyah} - $endChain)',
+                    chainStep: stepCount,
+                    totalChainSteps: totalSteps,
+                  ),
+                ));
+              }
+            }
+          }
+        }
+
+        // --- PHASE C: FULL BLOCK CONSOLIDATION (تثبيت المقطع كاملاً مجمعاً) ---
+        for (int bLoop = 1; bLoop <= config.blockRepeatCount; bLoop++) {
+          for (int a = config.startAyah; a <= config.endAyah; a++) {
+            final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
+            sources.add(AudioSource.uri(
+              Uri.parse(url),
+              tag: AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
-                loopIndex: 1,
-                totalLoops: 1,
+                loopIndex: bLoop,
+                totalLoops: config.blockRepeatCount,
                 isSilence: false,
-                isGroupPhase: true,
-                groupLoopIndex: gLoop,
-                totalGroupLoops: config.linkGroupRepeat,
-              );
-              sources.add(AudioSource.uri(Uri.parse(url), tag: groupAyahTag));
-            }
+                phase: GoldenLoopPhase.phaseCConsolidation,
+                phaseLabel: 'المرحلة (ج): تثبيت المقطع مجمعاً بالكامل',
+              ),
+            ));
+          }
 
-            if (silentSource != null) {
-              final groupSilenceTag = AyahPlaybackTag(
+          if (silentSource != null) {
+            sources.add(AudioSource.uri(
+              (silentSource as UriAudioSource).uri,
+              tag: AyahPlaybackTag(
                 surah: config.surah,
                 ayah: config.endAyah,
-                loopIndex: 1,
-                totalLoops: 1,
+                loopIndex: bLoop,
+                totalLoops: config.blockRepeatCount,
                 isSilence: true,
-                isGroupPhase: true,
-                groupLoopIndex: gLoop,
-                totalGroupLoops: config.linkGroupRepeat,
-              );
+                phase: GoldenLoopPhase.phaseCConsolidation,
+                phaseLabel: 'المرحلة (ج): ردد المقطع كاملاً بصوتك',
+              ),
+            ));
+          }
+        }
+      } else if (config.repetitionMode == HifzRepetitionMode.combinedBlock) {
+        // Simple Combined block mode
+        for (int bLoop = 1; bLoop <= config.blockRepeatCount; bLoop++) {
+          for (int a = config.startAyah; a <= config.endAyah; a++) {
+            final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
+            sources.add(AudioSource.uri(
+              Uri.parse(url),
+              tag: AyahPlaybackTag(
+                surah: config.surah,
+                ayah: a,
+                loopIndex: bLoop,
+                totalLoops: config.blockRepeatCount,
+                isSilence: false,
+                phase: GoldenLoopPhase.phaseCConsolidation,
+                phaseLabel: 'تكرار المقطع مجمعاً',
+              ),
+            ));
+          }
+
+          if (silentSource != null) {
+            sources.add(AudioSource.uri(
+              (silentSource as UriAudioSource).uri,
+              tag: AyahPlaybackTag(
+                surah: config.surah,
+                ayah: config.endAyah,
+                loopIndex: bLoop,
+                totalLoops: config.blockRepeatCount,
+                isSilence: true,
+                phase: GoldenLoopPhase.phaseCConsolidation,
+                phaseLabel: 'ردد المقطع مجمعاً بصوتك',
+              ),
+            ));
+          }
+        }
+      } else {
+        // Simple Single Verses Repetition (N times each)
+        for (int a = config.startAyah; a <= config.endAyah; a++) {
+          final primaryUrl = _formatUrl(config.reciterCdnPattern, config.surah, a);
+          for (int loop = 1; loop <= config.singleRepeatCount; loop++) {
+            sources.add(AudioSource.uri(
+              Uri.parse(primaryUrl),
+              tag: AyahPlaybackTag(
+                surah: config.surah,
+                ayah: a,
+                loopIndex: loop,
+                totalLoops: config.singleRepeatCount,
+                isSilence: false,
+                phase: GoldenLoopPhase.phaseAMastery,
+                phaseLabel: 'تكرار الآية $a',
+              ),
+            ));
+
+            if (silentSource != null) {
               sources.add(AudioSource.uri(
                 (silentSource as UriAudioSource).uri,
-                tag: groupSilenceTag,
+                tag: AyahPlaybackTag(
+                  surah: config.surah,
+                  ayah: a,
+                  loopIndex: loop,
+                  totalLoops: config.singleRepeatCount,
+                  isSilence: true,
+                  phase: GoldenLoopPhase.phaseAMastery,
+                  phaseLabel: 'مهلة الترديد للآية $a',
+                ),
               ));
             }
           }
@@ -430,19 +553,17 @@ class AudioPlayerService {
     _emitState(_currentState.copyWith(
       status: HifzPlaybackStatus.idle,
       isDelaying: false,
+      phase: GoldenLoopPhase.idle,
+      phaseLabel: '',
     ));
   }
 
-  Future<void> seekToNext() async {
-    if (_player.hasNext) {
-      await _player.seekToNext();
-    }
-  }
-
-  Future<void> seekToPrevious() async {
-    if (_player.hasPrevious) {
-      await _player.seekToPrevious();
-    }
+  void completeActiveTest() {
+    _emitState(_currentState.copyWith(
+      status: HifzPlaybackStatus.completed,
+      phase: GoldenLoopPhase.idle,
+      phaseLabel: 'ما شاء الله! اكتمل الحفظ والتسميع بنجاح',
+    ));
   }
 
   void dispose() {

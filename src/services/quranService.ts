@@ -7,6 +7,7 @@ const scriptCaches: Record<Riwayah, Record<string, Record<string, string[]>> | n
   hafs: null,
   warsh: null,
   qalun: null,
+  duri: null,
 };
 let tafseerDataCache: string[][] | null = null;
 let translationsCache: Record<number, Record<number, string>> = {};
@@ -18,6 +19,7 @@ export async function loadRiwayahScript(riwayah: Riwayah = 'hafs'): Promise<Reco
     hafs: '/assets/quran_script/Uthmani.json',
     warsh: '/assets/quran_script/Warsh.json',
     qalun: '/assets/quran_script/Qalun.json',
+    duri: '/assets/quran_script/Uthmani.json',
   };
 
   const filePath = fileMap[riwayah] || fileMap.hafs;

@@ -171,8 +171,67 @@ export class HifzAudioEngine {
     }
     if (verses.length === 0) return;
 
-    // Mode 1: Combined Block Repetition (Loops entire passage together)
-    if (repetitionMode === 'combined_block') {
+    // Mode 1: The Golden Loop (Phase A Mastery -> Phase B Chain Link -> Phase C Consolidation)
+    if (repetitionMode === 'golden_loop') {
+      const singleLoops = Math.max(1, singleRepeatCount || 5);
+      const chainLoops = Math.max(1, linkGroupRepeatCount || 2);
+      const blockLoops = Math.max(1, blockRepeatCount || 3);
+
+      // Phase A: Individual Verse Mastery
+      for (const v of verses) {
+        for (let r = 1; r <= singleLoops; r++) {
+          this.playlist.push({
+            surah: surahNumber,
+            ayah: v,
+            type: 'single',
+            loopIndex: r,
+            totalLoops: singleLoops,
+            description: `المرحلة (أ): إتقان الآية ${v} • تكرار ${r} من ${singleLoops}`,
+            isEndOfPassage: true,
+          });
+        }
+      }
+
+      // Phase B: Cumulative Chain Linking (الربط التراكمي العثماني)
+      if (verses.length > 1) {
+        for (let endIdx = 1; endIdx < verses.length; endIdx++) {
+          const chainVerses = verses.slice(0, endIdx + 1);
+          const chainLabel = `${chainVerses[0]} إلى ${chainVerses[chainVerses.length - 1]}`;
+
+          for (let lr = 1; lr <= chainLoops; lr++) {
+            chainVerses.forEach((cv, cIdx) => {
+              const isEndOfChain = cIdx === chainVerses.length - 1;
+              this.playlist.push({
+                surah: surahNumber,
+                ayah: cv,
+                type: 'link',
+                loopIndex: lr,
+                totalLoops: chainLoops,
+                description: `المرحلة (ب): الربط التراكمي (${chainLabel}) • دورة ${lr} من ${chainLoops} • آية ${cv}`,
+                isEndOfPassage: isEndOfChain,
+              });
+            });
+          }
+        }
+      }
+
+      // Phase C: Full Block Consolidation (تثبيت المقطع كاملاً مجمعاً)
+      const blockLabel = `${startAyah}-${endAyah}`;
+      for (let br = 1; br <= blockLoops; br++) {
+        verses.forEach((bv, bIdx) => {
+          const isEndOfBlock = bIdx === verses.length - 1;
+          this.playlist.push({
+            surah: surahNumber,
+            ayah: bv,
+            type: 'block',
+            loopIndex: br,
+            totalLoops: blockLoops,
+            description: `المرحلة (ج): تثبيت المقطع مجمعاً (${blockLabel}) • دورة ${br} من ${blockLoops} • آية ${bv}`,
+            isEndOfPassage: isEndOfBlock,
+          });
+        });
+      }
+    } else if (repetitionMode === 'combined_block') {
       const loops = Math.max(1, blockRepeatCount || singleRepeatCount || 5);
       const blockLabel = `${startAyah}-${endAyah}`;
 
@@ -191,8 +250,7 @@ export class HifzAudioEngine {
         });
       }
     } else {
-      // Mode 2: Verse-by-Verse (Single loops then linked groups)
-      // Step 1: For each verse, repeat N times
+      // Mode 3: Simple Verse-by-Verse
       for (const v of verses) {
         for (let r = 1; r <= singleRepeatCount; r++) {
           this.playlist.push({
@@ -207,7 +265,6 @@ export class HifzAudioEngine {
         }
       }
 
-      // Step 2: Linked groups repetition (if more than 1 verse and linkGroupRepeatCount > 0)
       if (verses.length > 1 && linkGroupRepeatCount > 0) {
         const gSize = Math.max(2, linkGroupSize);
         for (let i = 0; i < verses.length; i += gSize) {

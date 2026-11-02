@@ -175,12 +175,13 @@ export const RepetitionSetupSheet: React.FC<RepetitionSetupSheetProps> = ({
               يتغير النص القرآني وضبطه مع كل رواية
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             {(
               [
-                { id: 'hafs', label: 'حفص عن عاصم', sub: 'رسم عثماني' },
-                { id: 'qalun', label: 'قالون عن نافع', sub: 'رسم وضبط مدني' },
-                { id: 'warsh', label: 'ورش عن نافع', sub: 'نقط وإمالة ونقل' },
+                { id: 'hafs', label: 'حفص', sub: 'عاصم' },
+                { id: 'qalun', label: 'قالون', sub: 'نافع' },
+                { id: 'warsh', label: 'ورش', sub: 'نافع' },
+                { id: 'duri', label: 'الدوري', sub: 'أبي عمرو' },
               ] as const
             ).map((item) => (
               <button
@@ -206,16 +207,16 @@ export const RepetitionSetupSheet: React.FC<RepetitionSetupSheetProps> = ({
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-[#5A6861] dark:text-[#9FB1A8] flex items-center gap-1.5">
             <Volume2 className="w-3.5 h-3.5 text-[#4A6B5D] dark:text-[#7FA695]" />
-            <span>القارئ المعتمد</span>
+            <span>القارئ والشيخ المعتمد ({availableReciters.length} قراء)</span>
           </label>
           <select
             value={selectedReciterId}
             onChange={(e) => setSelectedReciterId(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#1C2520] border border-[#E2D9CC] dark:border-[#2A3730] text-sm font-medium text-[#1E201D] dark:text-[#E6D5B8] focus:outline-hidden focus:ring-2 focus:ring-[#4A6B5D]"
+            className="w-full px-3 py-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#1C2520] border border-[#E2D9CC] dark:border-[#2A3730] text-sm font-medium text-[#1E201D] dark:text-[#E6D5B8] focus:outline-hidden focus:ring-2 focus:ring-[#4A6B5D]"
           >
             {availableReciters.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.nameAr} — ({r.style})
+                {r.nameAr} — ({r.style}) {r.tempo === 'slow' ? '• متأنٍّ' : ''}
               </option>
             ))}
           </select>
@@ -273,47 +274,254 @@ export const RepetitionSetupSheet: React.FC<RepetitionSetupSheetProps> = ({
           </div>
         </div>
 
-        {/* Repetition Mode Toggle (Combined Block vs Verse by Verse) */}
+        {/* 3-Way Repetition Mode Toggle */}
         <div className="space-y-1.5 pt-1">
           <label className="text-xs font-semibold text-[#5A6861] dark:text-[#9FB1A8] flex items-center justify-between">
-            <span>طريقة التكرار والحفظ</span>
+            <span>طريقة التكرار والمنهجية</span>
             <span className="text-[10px] text-[#7F8D87]">
-              {repetitionMode === 'combined_block'
-                ? `قراءة المقطع كاملاً (${startAyah} إلى ${endAyah}) في كل دورة`
-                : 'تكرار كل آية منفردة ثم ربطها معاً'}
+              {repetitionMode === 'golden_loop'
+                ? 'الحلقة الذهبية المتقنة: إتقان → ربط تراكمي → تثبيت مجمع → تسميع'
+                : repetitionMode === 'combined_block'
+                ? `قراءة المقطع كاملاً (${startAyah}-${endAyah}) متصلاً`
+                : 'تكرار آية بآية'}
             </span>
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setRepetitionMode('golden_loop')}
+              className={`py-2 px-1.5 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 ${
+                repetitionMode === 'golden_loop'
+                  ? 'bg-[#4A6B5D] text-white border-[#4A6B5D] shadow-xs'
+                  : 'bg-[#F2ECE1] dark:bg-[#1C2520] text-[#1E201D] dark:text-[#C5D5CC] border-[#E2D9CC] dark:border-[#2A3730] hover:bg-[#E8E0D2] dark:hover:bg-[#25332B]'
+              }`}
+            >
+              <div className="flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>الحلقة الذهبية</span>
+              </div>
+              <span className={`text-[9px] ${repetitionMode === 'golden_loop' ? 'text-white/80' : 'text-gray-500'}`}>
+                موصى به (أ-د)
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setRepetitionMode('combined_block')}
-              className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+              className={`py-2 px-1.5 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 ${
                 repetitionMode === 'combined_block'
                   ? 'bg-[#4A6B5D] text-white border-[#4A6B5D] shadow-xs'
                   : 'bg-[#F2ECE1] dark:bg-[#1C2520] text-[#1E201D] dark:text-[#C5D5CC] border-[#E2D9CC] dark:border-[#2A3730] hover:bg-[#E8E0D2] dark:hover:bg-[#25332B]'
               }`}
             >
-              <Layers className="w-3.5 h-3.5" />
-              <span>تكرار المقطع مجمعاً (كتلة واحدة)</span>
+              <div className="flex items-center gap-1">
+                <Layers className="w-3.5 h-3.5" />
+                <span>المقطع مجمعاً</span>
+              </div>
+              <span className={`text-[9px] ${repetitionMode === 'combined_block' ? 'text-white/80' : 'text-gray-500'}`}>
+                تلاوة متصلة
+              </span>
             </button>
+
             <button
               type="button"
               onClick={() => setRepetitionMode('verse_by_verse')}
-              className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+              className={`py-2 px-1.5 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 ${
                 repetitionMode === 'verse_by_verse'
                   ? 'bg-[#4A6B5D] text-white border-[#4A6B5D] shadow-xs'
                   : 'bg-[#F2ECE1] dark:bg-[#1C2520] text-[#1E201D] dark:text-[#C5D5CC] border-[#E2D9CC] dark:border-[#2A3730] hover:bg-[#E8E0D2] dark:hover:bg-[#25332B]'
               }`}
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>تكرار آية بآية (فردي ثم ربط)</span>
+              <div className="flex items-center gap-1">
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>آية بآية</span>
+              </div>
+              <span className={`text-[9px] ${repetitionMode === 'verse_by_verse' ? 'text-white/80' : 'text-gray-500'}`}>
+                تكرار فردي
+              </span>
             </button>
           </div>
         </div>
 
         {/* Steppers based on repetitionMode */}
         <div className="space-y-3 pt-1">
-          {repetitionMode === 'combined_block' ? (
+          {repetitionMode === 'golden_loop' ? (
+            <>
+              {/* Phase A: Single Repeat Stepper */}
+              <div className="p-3.5 rounded-2xl bg-[#F2ECE1]/80 dark:bg-[#1A221E]/80 border border-[#E2D9CC] dark:border-[#25332B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 text-[#4A6B5D] dark:text-[#7FA695]" />
+                    <div>
+                      <p className="text-xs font-bold text-[#1E201D] dark:text-[#E6D5B8]">
+                        [المرحلة أ]: تكرار كل آية منفردة
+                      </p>
+                      <p className="text-[10px] text-[#6E7D76] dark:text-[#889B91]">
+                        استماع للآية + مهلة الترديد من الذاكرة
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSingleRepeat((v) => Math.max(1, v - 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={singleRepeat}
+                      onChange={(e) => setSingleRepeat(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                      className="w-14 py-1 text-center text-base font-mono font-bold text-[#4A6B5D] dark:text-[#7FA695] bg-white dark:bg-[#131B17] rounded-lg border border-[#E2D9CC] dark:border-[#2A3730]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSingleRepeat((v) => Math.min(50, v + 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
+                  <span className="text-[10px] text-gray-500 font-medium">سريع:</span>
+                  {[3, 5, 7, 10].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setSingleRepeat(preset)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        singleRepeat === preset
+                          ? 'bg-[#4A6B5D] text-white shadow-xs'
+                          : 'bg-white/80 dark:bg-[#222E27] text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {preset}×
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Phase B: Chain Link Stepper */}
+              <div className="p-3.5 rounded-2xl bg-[#F2ECE1]/80 dark:bg-[#1A221E]/80 border border-[#E2D9CC] dark:border-[#25332B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-[#4A6B5D] dark:text-[#7FA695]" />
+                    <div>
+                      <p className="text-xs font-bold text-[#1E201D] dark:text-[#E6D5B8]">
+                        [المرحلة ب]: تكرار الربط التراكمي
+                      </p>
+                      <p className="text-[10px] text-[#6E7D76] dark:text-[#889B91]">
+                        ربط متسلسل: 1 ثم 1+2 ثم 1+2+3
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLinkGroupRepeat((v) => Math.max(1, v - 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={linkGroupRepeat}
+                      onChange={(e) => setLinkGroupRepeat(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                      className="w-14 py-1 text-center text-base font-mono font-bold text-[#4A6B5D] dark:text-[#7FA695] bg-white dark:bg-[#131B17] rounded-lg border border-[#E2D9CC] dark:border-[#2A3730]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setLinkGroupRepeat((v) => Math.min(20, v + 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
+                  <span className="text-[10px] text-gray-500 font-medium">سريع:</span>
+                  {[1, 2, 3, 5].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setLinkGroupRepeat(preset)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        linkGroupRepeat === preset
+                          ? 'bg-[#4A6B5D] text-white shadow-xs'
+                          : 'bg-white/80 dark:bg-[#222E27] text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {preset}×
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Phase C: Full Block Consolidation Stepper */}
+              <div className="p-3.5 rounded-2xl bg-[#F2ECE1]/80 dark:bg-[#1A221E]/80 border border-[#E2D9CC] dark:border-[#25332B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#4A6B5D] dark:text-[#7FA695]" />
+                    <div>
+                      <p className="text-xs font-bold text-[#1E201D] dark:text-[#E6D5B8]">
+                        [المرحلة ج]: تثبيت المقطع مجمعاً
+                      </p>
+                      <p className="text-[10px] text-[#6E7D76] dark:text-[#889B91]">
+                        تلاوة المقطع بالكامل متصلاً
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBlockRepeat((v) => Math.max(1, v - 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={blockRepeat}
+                      onChange={(e) => setBlockRepeat(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                      className="w-14 py-1 text-center text-base font-mono font-bold text-[#4A6B5D] dark:text-[#7FA695] bg-white dark:bg-[#131B17] rounded-lg border border-[#E2D9CC] dark:border-[#2A3730]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setBlockRepeat((v) => Math.min(50, v + 1))}
+                      className="w-9 h-9 rounded-xl bg-[#E2D9CC] dark:bg-[#28352F] text-base font-bold flex items-center justify-center hover:bg-[#4A6B5D] hover:text-white transition-colors active:scale-95"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
+                  <span className="text-[10px] text-gray-500 font-medium">سريع:</span>
+                  {[2, 3, 4, 5, 7].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setBlockRepeat(preset)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        blockRepeat === preset
+                          ? 'bg-[#4A6B5D] text-white shadow-xs'
+                          : 'bg-white/80 dark:bg-[#222E27] text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {preset}×
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : repetitionMode === 'combined_block' ? (
             <>
               {/* Block Repeat Stepper */}
               <div className="p-3.5 rounded-2xl bg-[#F2ECE1]/80 dark:bg-[#1A221E]/80 border border-[#E2D9CC] dark:border-[#25332B] space-y-2">
@@ -373,7 +581,6 @@ export const RepetitionSetupSheet: React.FC<RepetitionSetupSheetProps> = ({
                   ))}
                 </div>
               </div>
-
               {/* Pause Delay after Block */}
               <div className="p-3.5 rounded-2xl bg-[#F2ECE1]/80 dark:bg-[#1A221E]/80 border border-[#E2D9CC] dark:border-[#25332B] space-y-2">
                 <div className="flex items-center justify-between">
