@@ -1,5 +1,5 @@
-name: al_furkan_zen_hifz
-description: "Al-Furkan Zen Hifz - Distraction-free Quran Memorization and Live Halaqa App"
+name: itqan_quran_zen
+description: "Itqan Quran - Distraction-free Quran Memorization and Live Halaqa App"
 publish_to: "none"
 version: 1.0.0+1
 
@@ -49,5 +49,6 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/app_icon.png
     - assets/quran_script/
     - assets/adhan/

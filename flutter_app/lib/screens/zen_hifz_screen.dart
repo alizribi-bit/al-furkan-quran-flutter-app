@@ -1603,6 +1603,55 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
               children: [
                 if (!_isFocusMode) ...[
+                  // App Brand Banner (Itqan Quran)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12, top: 4),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            'assets/app_icon.png',
+                            width: 38,
+                            height: 38,
+                            fit: BoxFit.cover,
+                            errorBuilder: (ctx, err, stack) => Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: sageColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.menu_book, color: Colors.white, size: 22),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'إتقان • القرآن الكريم',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            Text(
+                              'الحلقة الذهبية للحفظ والتكرار المتقن',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: sageColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
                   // Header Row: Surah & Reciter Quick Selectors
                   Container(
                     padding: const EdgeInsets.all(14),

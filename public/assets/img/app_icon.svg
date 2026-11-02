@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradients -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E2F24"/>
+      <stop offset="45%" stop-color="#143D30"/>
+      <stop offset="100%" stop-color="#071B14"/>
+    </linearGradient>
+    <radialGradient id="ambientGlow" cx="50%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#2D7A5D" stop-opacity="0.45"/>
+      <stop offset="60%" stop-color="#154737" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#0E2F24" stop-opacity="0"/>
+    </radialGradient>
+    
+    <!-- Gold Gradients -->
+    <linearGradient id="goldTrim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE8A3"/>
+      <stop offset="35%" stop-color="#D4AF37"/>
+      <stop offset="70%" stop-color="#AA820A"/>
+      <stop offset="100%" stop-color="#F3E5AB"/>
+    </linearGradient>
+    <linearGradient id="goldBright" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFF3C4"/>
+      <stop offset="50%" stop-color="#E5C158"/>
+      <stop offset="100%" stop-color="#9C7716"/>
+    </linearGradient>
+    
+    <!-- Page Gradients -->
+    <linearGradient id="pageLeft" x1="100%" y1="0%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#E8DCB8"/>
+      <stop offset="15%" stop-color="#FBF8EE"/>
+      <stop offset="85%" stop-color="#FFFDF7"/>
+      <stop offset="100%" stop-color="#ECE3CD"/>
+    </linearGradient>
+    <linearGradient id="pageRight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E8DCB8"/>
+      <stop offset="15%" stop-color="#FBF8EE"/>
+      <stop offset="85%" stop-color="#FFFDF7"/>
+      <stop offset="100%" stop-color="#ECE3CD"/>
+    </linearGradient>
+    <linearGradient id="spineShadow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="woodStand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3D2612"/>
+      <stop offset="50%" stop-color="#5A3A1C"/>
+      <stop offset="100%" stop-color="#241407"/>
+    </linearGradient>
+    
+    <!-- Drop Shadow Filter -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#020805" flood-opacity="0.55"/>
+    </filter>
+    <filter id="goldGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    
+    <clipPath id="squircleClip">
+      <rect x="0" y="0" width="512" height="512" rx="112" ry="112"/>
+    </clipPath>
+  </defs>
+
+  <!-- Squircle Base with Emerald Gradient -->
+  <g clip-path="url(#squircleClip)">
+    <rect width="512" height="512" fill="url(#bgGrad)"/>
+    <rect width="512" height="512" fill="url(#ambientGlow)"/>
+
+    <!-- Subtle Islamic 8-Pointed Star Rosette Background Pattern -->
+    <g transform="translate(256, 238) scale(1.15)" opacity="0.14" stroke="url(#goldTrim)" stroke-width="2" fill="none">
+      <!-- Star 1 -->
+      <polygon points="0,-130 92,-92 130,0 92,92 0,130 -92,92 -130,0 -92,-92"/>
+      <!-- Star 2 (rotated 45 deg) -->
+      <polygon points="0,-130 92,-92 130,0 92,92 0,130 -92,92 -130,0 -92,-92" transform="rotate(45)"/>
+      <!-- Inner Rings -->
+      <circle r="115" stroke-dasharray="3 5"/>
+      <circle r="75"/>
+      <circle r="40" stroke-dasharray="2 4"/>
+    </g>
+
+    <!-- Subtle Radiant Rays from the Quran -->
+    <g transform="translate(256, 248)" opacity="0.18">
+      <line x1="0" y1="0" x2="0" y2="-170" stroke="url(#goldTrim)" stroke-width="2"/>
+      <line x1="0" y1="0" x2="65" y2="-155" stroke="url(#goldTrim)" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="-65" y2="-155" stroke="url(#goldTrim)" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="120" y2="-120" stroke="url(#goldTrim)" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="-120" y2="-120" stroke="url(#goldTrim)" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="155" y2="-65" stroke="url(#goldTrim)" stroke-width="1"/>
+      <line x1="0" y1="0" x2="-155" y2="-65" stroke="url(#goldTrim)" stroke-width="1"/>
+    </g>
+
+    <!-- Wooden Rahlah (Quran Stand) Beneath -->
+    <g filter="url(#softShadow)" opacity="0.95">
+      <!-- Left leg of stand -->
+      <path d="M165 345 L115 410 C110 417 116 426 125 426 L175 426 L235 348 Z" fill="url(#woodStand)"/>
+      <!-- Right leg of stand -->
+      <path d="M347 345 L397 410 C402 417 396 426 387 426 L337 426 L277 348 Z" fill="url(#woodStand)"/>
+      <!-- Crossing joint & gold ornament -->
+      <ellipse cx="256" cy="358" rx="20" ry="10" fill="#241407"/>
+      <circle cx="256" cy="358" r="6" fill="url(#goldBright)"/>
+    </g>
+
+    <!-- The Holy Quran (Open Mushaf) Main Body with Soft Shadow -->
+    <g filter="url(#softShadow)">
+      <!-- Outer Leather Hardcover Rim -->
+      <path d="M256 312 
+               C230 316 145 292 92 284
+               C80 282 72 290 74 300
+               C80 324 100 342 165 352
+               C215 360 248 335 256 332
+               C264 335 297 360 347 352
+               C412 342 432 324 438 300
+               C440 290 432 282 420 284
+               C367 292 282 316 256 312 Z" 
+            fill="#081811" stroke="url(#goldTrim)" stroke-width="3"/>
+
+      <!-- Stacked Page Edges (Gilded Paper Thickness) -->
+      <path d="M96 280 C150 288 230 310 256 308 C282 310 362 288 416 280 C419 292 412 306 345 316 C295 324 263 306 256 304 C249 306 217 324 167 316 C100 306 93 292 96 280 Z" 
+            fill="url(#goldBright)" opacity="0.85"/>
+
+      <!-- Left Page Surface -->
+      <path d="M256 168 
+               C226 163 158 142 108 148 
+               C98 149 92 156 94 166 
+               C100 216 116 280 162 288 
+               C208 296 242 278 256 274 Z" 
+            fill="url(#pageLeft)"/>
+
+      <!-- Right Page Surface -->
+      <path d="M256 168 
+               C286 163 354 142 404 148 
+               C414 149 420 156 418 166 
+               C412 216 396 280 350 288 
+               C304 296 270 278 256 274 Z" 
+            fill="url(#pageRight)"/>
+
+      <!-- Center Spine Depth Shade -->
+      <path d="M250 166 C253 200 253 240 250 276 L262 276 C259 240 259 200 262 166 Z" 
+            fill="url(#spineShadow)"/>
+
+      <!-- Golden Page Border Illuminations (Cadre & Margins) -->
+      <!-- Left Page Inner Frame -->
+      <path d="M245 180 C215 176 160 160 120 164 C115 165 112 170 113 175 C118 210 128 256 165 264 C200 270 232 258 245 255" 
+            fill="none" stroke="url(#goldTrim)" stroke-width="1.8" opacity="0.85"/>
+      <!-- Left Page Decorative Corner Rosette -->
+      <circle cx="120" cy="166" r="3" fill="url(#goldBright)"/>
+      <circle cx="165" cy="263" r="3" fill="url(#goldBright)"/>
+
+      <!-- Right Page Inner Frame -->
+      <path d="M267 180 C297 176 352 160 392 164 C397 165 400 170 399 175 C394 210 384 256 347 264 C312 270 280 258 267 255" 
+            fill="none" stroke="url(#goldTrim)" stroke-width="1.8" opacity="0.85"/>
+      <!-- Right Page Decorative Corner Rosette -->
+      <circle cx="392" cy="166" r="3" fill="url(#goldBright)"/>
+      <circle cx="347" cy="263" r="3" fill="url(#goldBright)"/>
+
+      <!-- Subtle Calligraphic Representation Lines (Ayat) -->
+      <!-- Left Page Lines -->
+      <path d="M135 190 C165 186 210 193 238 197 M132 208 C165 204 210 211 238 215 M136 226 C165 222 210 229 238 233 M145 244 C175 240 210 246 235 249" 
+            stroke="#8A7750" stroke-width="2.2" stroke-linecap="round" opacity="0.38"/>
+
+      <!-- Right Page Lines -->
+      <path d="M274 197 C302 193 347 186 377 190 M274 215 C302 211 347 204 380 208 M274 233 C302 229 347 222 376 226 M277 249 C302 246 337 240 367 244" 
+            stroke="#8A7750" stroke-width="2.2" stroke-linecap="round" opacity="0.38"/>
+
+      <!-- Traditional Silk Bookmark Ribbon (فاصل المصحف القماشي الشريف) -->
+      <path d="M256 165 
+               C254 210 248 270 244 320 
+               C242 345 238 375 235 390 
+               L247 385 
+               L259 392 
+               C256 370 258 335 258 310 
+               C258 270 258 210 256 165 Z" 
+            fill="url(#goldBright)" filter="url(#goldGlow)" opacity="0.95"/>
+      <!-- Ribbon Golden Fringe / Tassel -->
+      <circle cx="247" cy="397" r="3" fill="url(#goldTrim)"/>
+    </g>
+
+    <!-- Top Radiant Crest (Subtle Crown of Light) -->
+    <g transform="translate(256, 128)" opacity="0.9">
+      <circle cx="0" cy="0" r="14" fill="url(#goldBright)" filter="url(#goldGlow)"/>
+      <circle cx="0" cy="0" r="8" fill="#FFFDF7"/>
+      <!-- Sparkle cross -->
+      <polygon points="0,-18 3,-4 18,0 3,4 0,18 -3,4 -18,0 -3,-4" fill="url(#goldBright)"/>
+    </g>
+
+    <!-- Subtle Premium Squircle Border Accent -->
+    <rect x="2" y="2" width="508" height="508" rx="110" ry="110" fill="none" stroke="url(#goldTrim)" stroke-width="3" opacity="0.45"/>
+    <rect x="7" y="7" width="498" height="498" rx="106" ry="106" fill="none" stroke="#FFFFFF" stroke-width="1" opacity="0.12"/>
+  </g>
+</svg>

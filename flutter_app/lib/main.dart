@@ -24,7 +24,7 @@ class AlFurkanZenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'الفرقان • Zen Hifz',
+      title: 'إتقان • Itqan Quran',
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
       supportedLocales: const [

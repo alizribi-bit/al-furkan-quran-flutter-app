@@ -33,8 +33,25 @@ export const ZenNavbar: React.FC<ZenNavbarProps> = ({
   return (
     <header className="sticky top-0 z-30 transition-colors duration-200 backdrop-blur-md bg-[#FBF8F3]/90 dark:bg-[#121615]/90 border-b border-[#E8E2D7] dark:border-[#222B27]">
       <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-        {/* Left / Surah Selector Pill */}
+        {/* Left / Branding + Surah Selector Pill */}
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 pl-2 border-l border-[#E2D9CC] dark:border-[#2C3B34]">
+            <img
+              src="/assets/img/app_icon.svg"
+              alt="شعار إتقان"
+              className="w-8 h-8 rounded-xl shadow-xs border border-[#D4AF37]/40 object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="hidden md:flex flex-col">
+              <span className="text-sm font-bold text-[#1E201D] dark:text-[#E6D5B8] leading-none">
+                إتقان
+              </span>
+              <span className="text-[10px] text-[#4A6B5D] dark:text-[#7FA695] font-semibold leading-tight mt-0.5">
+                القرآن الكريم
+              </span>
+            </div>
+          </div>
+
           <button
             onClick={onOpenSurahPicker}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#F2ECE1] dark:bg-[#1A221E] hover:bg-[#EAE2D4] dark:hover:bg-[#232F2A] text-[#1E201D] dark:text-[#E6D5B8] transition-all border border-[#E2D9CC] dark:border-[#2C3B34] text-sm font-semibold shadow-xs"
