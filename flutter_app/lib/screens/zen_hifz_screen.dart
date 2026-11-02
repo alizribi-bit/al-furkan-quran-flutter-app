@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../core/theme/zen_theme.dart';
 import '../core/audio/audio_player_service.dart';
+import '../core/audio/reciters_data.dart';
 import '../core/quran/surah_data.dart';
 
 enum MaskingMode { visible, blurred, hidden }
@@ -41,9 +42,9 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
   int _linkGroupRepeat = 3;
   int _pauseDelaySeconds = 4;
   double _playbackSpeed = 1.0;
-  String _selectedReciterName = 'الحصري (المعلم)';
-  String _reciterPattern =
-      'https://everyayah.com/data/Husary_Muallim_128kbps/{surah:03d}{ayah:03d}.mp3';
+
+  // Selected Reciter
+  late HifzReciter _selectedReciter;
 
   // Loaded verses from dynamic JSON
   List<Map<String, dynamic>> _loadedVerses = [];
@@ -56,6 +57,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedReciter = QuranRecitersData.getDefault(_riwayah);
     _loadVerses();
 
     // Subscribe to AudioPlayerService events to track loop counting and delay
@@ -109,7 +111,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
         content: Text(
           'ما شاء الله! اكتملت جلسة التكرار والحفظ بنجاح',
           textAlign: TextAlign.center,
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
         ),
         backgroundColor: ZenTheme.lightSage,
         duration: Duration(seconds: 4),
@@ -171,7 +173,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
         linkGroupRepeat: _linkGroupRepeat,
         pauseDelaySeconds: _pauseDelaySeconds,
         playbackSpeed: _playbackSpeed,
-        reciterCdnPattern: _reciterPattern,
+        reciterCdnPattern: _selectedReciter.cdnPattern,
       ),
     );
   }
@@ -202,6 +204,208 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     _audioPlayer.stop();
   }
 
+  // Helper dialog to enter custom number directly
+  Future<int?> _showDirectNumberDialog({
+    required BuildContext context,
+    required String title,
+    required int currentValue,
+    required int min,
+    required int max,
+  }) async {
+    final controller = TextEditingController(text: currentValue.toString());
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sageColor = isDark ? ZenTheme.darkSage : ZenTheme.lightSage;
+
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('أدخل رقماً بين $min و $max', style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: sageColor, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: sageColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                final val = int.tryParse(controller.text);
+                if (val != null) {
+                  Navigator.pop(ctx, val.clamp(min, max));
+                } else {
+                  Navigator.pop(ctx);
+                }
+              },
+              child: const Text('تأكيد'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Modal to choose Reciter (الشيخ / القارئ)
+  void _openReciterPickerModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
+    final sageColor = isDark ? ZenTheme.darkSage : ZenTheme.lightSage;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? ZenTheme.darkSurface : ZenTheme.lightSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        final reciters = QuranRecitersData.getByRiwayah(_riwayah);
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.70,
+          padding: const EdgeInsets.only(top: 20, left: 20, right: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'اختر الشيخ أو القارئ للتكرار',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'قراء رواية ${_riwayah == 'hafs' ? 'حفص عن عاصم' : _riwayah == 'qalun' ? 'قالون عن نافع' : 'ورش عن نافع'}',
+                        style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: reciters.length,
+                  separatorBuilder: (ctx, i) => const SizedBox(height: 8),
+                  itemBuilder: (context, idx) {
+                    final reciter = reciters[idx];
+                    final isSelected = reciter.id == _selectedReciter.id;
+
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedReciter = reciter;
+                        });
+                        Navigator.pop(context);
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? sageColor.withValues(alpha: 0.15)
+                              : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04)),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected ? sageColor : Colors.transparent,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: isSelected
+                                  ? sageColor
+                                  : (isDark ? Colors.white12 : Colors.black12),
+                              child: Icon(
+                                Icons.record_voice_over,
+                                color: isSelected ? Colors.white : sageColor,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    reciter.nameAr,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    reciter.style,
+                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isSelected)
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: sageColor,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.check, color: Colors.white, size: 16),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Modal to choose Surah
   void _openSurahPickerModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
@@ -261,7 +465,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -283,8 +487,9 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                             ),
                           ),
                           child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                             leading: CircleAvatar(
-                              radius: 16,
+                              radius: 18,
                               backgroundColor: isSelected
                                   ? sageColor
                                   : (isDark ? Colors.white12 : Colors.black12),
@@ -301,6 +506,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                               'سورة ${s.nameAr}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
+                                fontSize: 16,
                                 color: textColor,
                               ),
                             ),
@@ -309,7 +515,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                               style: const TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                             trailing: isSelected
-                                ? Icon(Icons.check_circle, color: sageColor)
+                                ? Icon(Icons.check_circle, color: sageColor, size: 24)
                                 : null,
                             onTap: () {
                               Navigator.pop(context);
@@ -334,6 +540,184 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     );
   }
 
+  /// Big, touch-friendly Stepper with Direct Input button
+  Widget _buildFriendlyNumberStepper({
+    required BuildContext context,
+    required String title,
+    required String unit,
+    required int value,
+    required int min,
+    required int max,
+    required List<int> presets,
+    required Function(int) onChanged,
+    required bool isDark,
+    required Color textColor,
+    required Color sageColor,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+            Text(
+              '$value $unit',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: sageColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        // Big Stepper Controls: [ - ]  [ Tap to Enter / Current ]  [ + ]
+        Row(
+          children: [
+            // Minus Button
+            InkWell(
+              onTap: value > min ? () => onChanged(value - 1) : null,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 52,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: value > min
+                      ? (isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.07))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: value > min ? sageColor.withValues(alpha: 0.4) : Colors.grey.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Icon(
+                  Icons.remove,
+                  color: value > min ? sageColor : Colors.grey,
+                  size: 24,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            // Middle Number Display (Tappable to type directly)
+            Expanded(
+              child: InkWell(
+                onTap: () async {
+                  final result = await _showDirectNumberDialog(
+                    context: context,
+                    title: title,
+                    currentValue: value,
+                    min: min,
+                    max: max,
+                  );
+                  if (result != null) onChanged(result);
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: sageColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: sageColor.withValues(alpha: 0.5), width: 1.5),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '$value $unit',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.edit, size: 16, color: sageColor),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            // Plus Button
+            InkWell(
+              onTap: value < max ? () => onChanged(value + 1) : null,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 52,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: value < max
+                      ? (isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.07))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: value < max ? sageColor.withValues(alpha: 0.4) : Colors.grey.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Icon(
+                  Icons.add,
+                  color: value < max ? sageColor : Colors.grey,
+                  size: 24,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        // Quick Preset Chips (Big touch targets)
+        if (presets.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: presets.map((p) {
+                final isSelected = p == value;
+                return Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: InkWell(
+                    onTap: () => onChanged(p),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? sageColor
+                            : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? sageColor : Colors.transparent,
+                        ),
+                      ),
+                      child: Text(
+                        '$p',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? Colors.white : textColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   void _openSetupModalSheet() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
@@ -354,10 +738,10 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
 
             return SingleChildScrollView(
               padding: EdgeInsets.only(
-                left: 24,
-                right: 24,
+                left: 20,
+                right: 20,
                 top: 24,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 28,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -369,126 +753,134 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       Text(
                         'إعدادات جلسة التكرار المتقن',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: textColor,
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(Icons.close, size: 24),
                         onPressed: () => Navigator.pop(context),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
-                  // Surah selector card
+                  // 1. SURAH CARD (Big & Clear)
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(16),
+                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: sageColor.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'السورة الحالية',
-                              style: TextStyle(fontSize: 11, color: sageColor),
-                            ),
-                            Text(
-                              '${currentSurahInfo.number}. سورة ${currentSurahInfo.nameAr}',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: textColor,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'السورة الكريمة المختارة',
+                                style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.w600),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 2),
+                              Text(
+                                '${currentSurahInfo.number}. سورة ${currentSurahInfo.nameAr}',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                              ),
+                              Text(
+                                '${currentSurahInfo.versesCount} آية • ${currentSurahInfo.revelationType == 'Meccan' ? 'مكية' : 'مدنية'}',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
                         ),
-                        TextButton.icon(
+                        ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(context);
                             _openSurahPickerModal();
                           },
-                          icon: const Icon(Icons.swap_horiz, size: 18),
-                          label: const Text('تغيير السورة'),
-                          style: TextButton.styleFrom(foregroundColor: sageColor),
+                          icon: const Icon(Icons.menu_book, size: 18),
+                          label: const Text('تغيير السورة', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: sageColor.withValues(alpha: 0.2),
+                            foregroundColor: sageColor,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 2. RECITER CARD (الشيخ أو القارئ - Big & Clear)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: sageColor.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'الشيخ والقارئ المعتمد',
+                                style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _selectedReciter.nameAr,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                              ),
+                              Text(
+                                _selectedReciter.style,
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _openReciterPickerModal();
+                          },
+                          icon: const Icon(Icons.record_voice_over, size: 18),
+                          label: const Text('تغيير القارئ', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: sageColor,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // Ayah Range Selector
-                  Text(
-                    'نطاق الآيات للحفظ (من $_startAyah إلى $_endAyah)',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('من الآية: $_startAyah', style: TextStyle(fontSize: 12, color: textColor)),
-                            Slider(
-                              value: _startAyah.toDouble().clamp(1.0, _endAyah.toDouble()),
-                              min: 1,
-                              max: maxAyah.toDouble(),
-                              divisions: maxAyah > 1 ? maxAyah - 1 : 1,
-                              activeColor: sageColor,
-                              onChanged: (v) {
-                                final val = v.round();
-                                if (val <= _endAyah) {
-                                  setSheetState(() => _startAyah = val);
-                                  setState(() => _startAyah = val);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('إلى الآية: $_endAyah', style: TextStyle(fontSize: 12, color: textColor)),
-                            Slider(
-                              value: _endAyah.toDouble().clamp(_startAyah.toDouble(), maxAyah.toDouble()),
-                              min: 1,
-                              max: maxAyah.toDouble(),
-                              divisions: maxAyah > 1 ? maxAyah - 1 : 1,
-                              activeColor: sageColor,
-                              onChanged: (v) {
-                                final val = v.round();
-                                if (val >= _startAyah) {
-                                  setSheetState(() => _endAyah = val);
-                                  setState(() => _endAyah = val);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Riwayah Selector (Hafs | Qalun | Warsh)
+                  // 3. RIWAYAH BUTTONS (حفص | قالون | ورش)
                   Text(
                     'الرواية القرآنية ومصحف التلاوة',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: textColor,
                     ),
@@ -505,47 +897,34 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       final isSelected = _riwayah == id;
                       return Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: InkWell(
                             onTap: () {
                               setSheetState(() => _riwayah = id);
                               setState(() {
                                 _riwayah = id;
-                                if (id == 'hafs') {
-                                  _selectedReciterName = 'الحصري (المعلم)';
-                                  _reciterPattern =
-                                      'https://everyayah.com/data/Husary_Muallim_128kbps/{surah:03d}{ayah:03d}.mp3';
-                                } else if (id == 'qalun') {
-                                  _selectedReciterName = 'علي الحذيفي (قالون)';
-                                  _reciterPattern =
-                                      'https://everyayah.com/data/Hudhaify_128kbps/{surah:03d}{ayah:03d}.mp3';
-                                } else if (id == 'warsh') {
-                                  _selectedReciterName = 'إبراهيم الدوسري (ورش)';
-                                  _reciterPattern =
-                                      'https://everyayah.com/data/Warsh_Dossary_128kbps/{surah:03d}{ayah:03d}.mp3';
-                                }
+                                _selectedReciter = QuranRecitersData.getDefault(id);
                               });
                               _loadVerses();
                             },
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? sageColor
-                                    : (isDark ? Colors.white10 : Colors.black12),
-                                borderRadius: BorderRadius.circular(12),
+                                    : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                                borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: isSelected
-                                      ? sageColor
-                                      : (isDark ? Colors.white24 : Colors.black26),
+                                  color: isSelected ? sageColor : Colors.transparent,
+                                  width: isSelected ? 2 : 1,
                                 ),
                               ),
                               alignment: Alignment.center,
                               child: Text(
                                 name,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: isSelected ? Colors.white : textColor,
                                 ),
@@ -557,13 +936,167 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
-                  // Repetition Mode Toggle
+                  // 4. AYAH RANGE: FROM & TO WITH FRIENDLY STEPPERS
                   Text(
-                    'طريقة التكرار',
+                    'نطاق الآيات المراد حفظها في الجلسة',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      // FROM AYAH
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('من الآية', style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle_outline),
+                                    color: _startAyah > 1 ? sageColor : Colors.grey,
+                                    onPressed: _startAyah > 1
+                                        ? () {
+                                            setSheetState(() => _startAyah -= 1);
+                                            setState(() => _startAyah -= 1);
+                                          }
+                                        : null,
+                                  ),
+                                  InkWell(
+                                    onTap: () async {
+                                      final res = await _showDirectNumberDialog(
+                                        context: context,
+                                        title: 'من الآية رقم',
+                                        currentValue: _startAyah,
+                                        min: 1,
+                                        max: _endAyah,
+                                      );
+                                      if (res != null) {
+                                        setSheetState(() => _startAyah = res);
+                                        setState(() => _startAyah = res);
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: sageColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '$_startAyah',
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle_outline),
+                                    color: _startAyah < _endAyah ? sageColor : Colors.grey,
+                                    onPressed: _startAyah < _endAyah
+                                        ? () {
+                                            setSheetState(() => _startAyah += 1);
+                                            setState(() => _startAyah += 1);
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+
+                      // TO AYAH
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('إلى الآية', style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle_outline),
+                                    color: _endAyah > _startAyah ? sageColor : Colors.grey,
+                                    onPressed: _endAyah > _startAyah
+                                        ? () {
+                                            setSheetState(() => _endAyah -= 1);
+                                            setState(() => _endAyah -= 1);
+                                          }
+                                        : null,
+                                  ),
+                                  InkWell(
+                                    onTap: () async {
+                                      final res = await _showDirectNumberDialog(
+                                        context: context,
+                                        title: 'إلى الآية رقم',
+                                        currentValue: _endAyah,
+                                        min: _startAyah,
+                                        max: maxAyah,
+                                      );
+                                      if (res != null) {
+                                        setSheetState(() => _endAyah = res);
+                                        setState(() => _endAyah = res);
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: sageColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '$_endAyah',
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle_outline),
+                                    color: _endAyah < maxAyah ? sageColor : Colors.grey,
+                                    onPressed: _endAyah < maxAyah
+                                        ? () {
+                                            setSheetState(() => _endAyah += 1);
+                                            setState(() => _endAyah += 1);
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 5. REPETITION MODE CARDS
+                  Text(
+                    'طريقة ومنهجية التكرار',
+                    style: TextStyle(
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: textColor,
                     ),
@@ -577,213 +1110,195 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                             setSheetState(() => _repetitionMode = HifzRepetitionMode.combinedBlock);
                             setState(() => _repetitionMode = HifzRepetitionMode.combinedBlock);
                           },
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                             decoration: BoxDecoration(
                               color: _repetitionMode == HifzRepetitionMode.combinedBlock
                                   ? sageColor
-                                  : (isDark ? Colors.white10 : Colors.black12),
-                              borderRadius: BorderRadius.circular(12),
+                                  : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: _repetitionMode == HifzRepetitionMode.combinedBlock
                                     ? sageColor
-                                    : (isDark ? Colors.white24 : Colors.black26),
+                                    : Colors.transparent,
+                                width: 2,
                               ),
                             ),
                             alignment: Alignment.center,
-                            child: Text(
-                              'تكرار المقطع مجمعاً',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: _repetitionMode == HifzRepetitionMode.combinedBlock
-                                    ? Colors.white
-                                    : textColor,
-                              ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.layers,
+                                  color: _repetitionMode == HifzRepetitionMode.combinedBlock ? Colors.white : sageColor,
+                                  size: 22,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'تكرار المقطع مجمعاً',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: _repetitionMode == HifzRepetitionMode.combinedBlock
+                                        ? Colors.white
+                                        : textColor,
+                                  ),
+                                ),
+                                Text(
+                                  'قراءة الآيات متصلة',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: _repetitionMode == HifzRepetitionMode.combinedBlock
+                                        ? Colors.white70
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: InkWell(
                           onTap: () {
                             setSheetState(() => _repetitionMode = HifzRepetitionMode.verseByVerse);
                             setState(() => _repetitionMode = HifzRepetitionMode.verseByVerse);
                           },
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                             decoration: BoxDecoration(
                               color: _repetitionMode == HifzRepetitionMode.verseByVerse
                                   ? sageColor
-                                  : (isDark ? Colors.white10 : Colors.black12),
-                              borderRadius: BorderRadius.circular(12),
+                                  : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: _repetitionMode == HifzRepetitionMode.verseByVerse
                                     ? sageColor
-                                    : (isDark ? Colors.white24 : Colors.black26),
+                                    : Colors.transparent,
+                                width: 2,
                               ),
                             ),
                             alignment: Alignment.center,
-                            child: Text(
-                              'تكرار آية بآية (فردي)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: _repetitionMode == HifzRepetitionMode.verseByVerse
-                                    ? Colors.white
-                                    : textColor,
-                              ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.repeat,
+                                  color: _repetitionMode == HifzRepetitionMode.verseByVerse ? Colors.white : sageColor,
+                                  size: 22,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'تكرار آية بآية',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: _repetitionMode == HifzRepetitionMode.verseByVerse
+                                        ? Colors.white
+                                        : textColor,
+                                  ),
+                                ),
+                                Text(
+                                  'إتقان كل آية منفردة',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: _repetitionMode == HifzRepetitionMode.verseByVerse
+                                        ? Colors.white70
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
+                  // 6. FRIENDLY REPETITION COUNTERS (WITH BIG STEPPERS & QUICK CHIPS)
                   if (_repetitionMode == HifzRepetitionMode.combinedBlock) ...[
-                    // Combined Block Repeat Slider
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'تكرار المقطع بالكامل (N مرات)',
-                          style: TextStyle(fontSize: 13, color: textColor),
-                        ),
-                        Text(
-                          '$_blockRepeat مرات',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: sageColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _blockRepeat.toDouble(),
+                    _buildFriendlyNumberStepper(
+                      context: context,
+                      title: 'عدد مرات تكرار المقطع كاملاً',
+                      unit: 'مرات',
+                      value: _blockRepeat,
                       min: 1,
-                      max: 20,
-                      divisions: 19,
-                      activeColor: sageColor,
+                      max: 50,
+                      presets: [3, 5, 7, 10, 15, 20],
                       onChanged: (v) {
-                        setSheetState(() => _blockRepeat = v.round());
-                        setState(() => _blockRepeat = v.round());
+                        setSheetState(() => _blockRepeat = v);
+                        setState(() => _blockRepeat = v);
                       },
+                      isDark: isDark,
+                      textColor: textColor,
+                      sageColor: sageColor,
                     ),
                   ] else ...[
-                    // Single Repeat Slider
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'تكرار الآية الواحدة (N مرات)',
-                          style: TextStyle(fontSize: 13, color: textColor),
-                        ),
-                        Text(
-                          '$_singleRepeat مرات',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: sageColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _singleRepeat.toDouble(),
+                    _buildFriendlyNumberStepper(
+                      context: context,
+                      title: 'تكرار كل آية منفردة',
+                      unit: 'مرات',
+                      value: _singleRepeat,
                       min: 1,
-                      max: 20,
-                      divisions: 19,
-                      activeColor: sageColor,
+                      max: 50,
+                      presets: [3, 5, 7, 10, 15, 20],
                       onChanged: (v) {
-                        setSheetState(() => _singleRepeat = v.round());
-                        setState(() => _singleRepeat = v.round());
+                        setSheetState(() => _singleRepeat = v);
+                        setState(() => _singleRepeat = v);
                       },
+                      isDark: isDark,
+                      textColor: textColor,
+                      sageColor: sageColor,
                     ),
-
-                    // Link Verses Slider
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'ربط المجموعة متسلسلة (M مرات)',
-                          style: TextStyle(fontSize: 13, color: textColor),
-                        ),
-                        Text(
-                          '$_linkGroupRepeat مرات',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: sageColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _linkGroupRepeat.toDouble(),
+                    const SizedBox(height: 14),
+                    _buildFriendlyNumberStepper(
+                      context: context,
+                      title: 'تكرار ربط الآيات متسلسلة',
+                      unit: 'مرات',
+                      value: _linkGroupRepeat,
                       min: 0,
-                      max: 10,
-                      divisions: 10,
-                      activeColor: sageColor,
+                      max: 20,
+                      presets: [0, 2, 3, 5, 7],
                       onChanged: (v) {
-                        setSheetState(() => _linkGroupRepeat = v.round());
-                        setState(() => _linkGroupRepeat = v.round());
+                        setSheetState(() => _linkGroupRepeat = v);
+                        setState(() => _linkGroupRepeat = v);
                       },
+                      isDark: isDark,
+                      textColor: textColor,
+                      sageColor: sageColor,
                     ),
                   ],
+                  const SizedBox(height: 16),
 
-                  // Pause Delay Slider
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'مهلة الصمت للترديد من الذاكرة (X ث)',
-                        style: TextStyle(fontSize: 13, color: textColor),
-                      ),
-                      Text(
-                        '$_pauseDelaySeconds ثوانٍ',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: sageColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _pauseDelaySeconds.toDouble(),
+                  // 7. PAUSE DELAY (مهلة الترديد)
+                  _buildFriendlyNumberStepper(
+                    context: context,
+                    title: 'مهلة الصمت للترديد الذاتي من الذاكرة',
+                    unit: 'ثوانٍ',
+                    value: _pauseDelaySeconds,
                     min: 0,
-                    max: 10,
-                    divisions: 10,
-                    activeColor: sageColor,
+                    max: 30,
+                    presets: [0, 2, 4, 6, 8, 10],
                     onChanged: (v) {
-                      setSheetState(() => _pauseDelaySeconds = v.round());
-                      setState(() => _pauseDelaySeconds = v.round());
+                      setSheetState(() => _pauseDelaySeconds = v);
+                      setState(() => _pauseDelaySeconds = v);
                     },
+                    isDark: isDark,
+                    textColor: textColor,
+                    sageColor: sageColor,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 18),
 
-                  // Voice Speed Control
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'سرعة التلاوة والصوت',
-                        style: TextStyle(fontSize: 13, color: textColor),
-                      ),
-                      Text(
-                        '${_playbackSpeed}x',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: sageColor,
-                        ),
-                      ),
-                    ],
+                  // 8. PLAYBACK SPEED (سرعة الصوت)
+                  Text(
+                    'سرعة التلاوة والصوت (${_playbackSpeed}x)',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -791,32 +1306,31 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       final isSelected = _playbackSpeed == speed;
                       return Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: InkWell(
                             onTap: () {
                               setSheetState(() => _playbackSpeed = speed);
                               setState(() => _playbackSpeed = speed);
                               _audioPlayer.setSpeed(speed);
                             },
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? sageColor
-                                    : (isDark ? Colors.white10 : Colors.black12),
-                                borderRadius: BorderRadius.circular(12),
+                                    : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                                borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: isSelected
-                                      ? sageColor
-                                      : (isDark ? Colors.white24 : Colors.black26),
+                                  color: isSelected ? sageColor : Colors.transparent,
+                                  width: isSelected ? 2 : 1,
                                 ),
                               ),
                               alignment: Alignment.center,
                               child: Text(
                                 '${speed}x',
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: isSelected ? Colors.white : textColor,
                                 ),
@@ -827,24 +1341,27 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  ElevatedButton(
+                  // 9. GIANT START BUTTON
+                  ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
                       _startSession();
                     },
+                    icon: const Icon(Icons.play_arrow, size: 24),
+                    label: const Text(
+                      'حفظ الإعدادات وبدء التكرار الآن',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: sageColor,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(18),
                       ),
-                    ),
-                    child: const Text(
-                      'حفظ الإعدادات وبدء التكرار',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                      elevation: 3,
                     ),
                   ),
                 ],
@@ -893,53 +1410,111 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
           // Main Verses Scroll Area
           SafeArea(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
               children: [
                 if (!_isFocusMode) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      InkWell(
-                        onTap: _openSurahPickerModal,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.all(4.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    'سورة ${currentSurahInfo.nameAr}',
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      color: textColor,
+                  // Header Row: Surah & Reciter Quick Selectors
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isDark ? ZenTheme.darkSurface : ZenTheme.lightSurface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: sageColor.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Tap to change Surah
+                            InkWell(
+                              onTap: _openSurahPickerModal,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      'سورة ${currentSurahInfo.nameAr}',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Icon(Icons.keyboard_arrow_down, color: sageColor, size: 24),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'الآيات $_startAyah - $_endAyah • مصحف ${_riwayah == 'hafs' ? 'حفص' : _riwayah == 'qalun' ? 'قالون' : 'ورش'} • ${_repetitionMode == HifzRepetitionMode.combinedBlock ? 'تكرار مجمع ($_blockRepeat×)' : 'تكرار فردي'}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: sageColor,
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.keyboard_arrow_down, color: sageColor, size: 22),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+
+                            // Tune / Settings Button
+                            IconButton(
+                              icon: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: sageColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(Icons.tune, color: sageColor, size: 20),
+                              ),
+                              tooltip: 'إعدادات الجلسة وتحديد الآيات',
+                              onPressed: _openSetupModalSheet,
+                            ),
+                          ],
                         ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.tune, color: sageColor),
-                        tooltip: 'إعدادات الجلسة',
-                        onPressed: _openSetupModalSheet,
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+
+                        // Subtitle with Reciter & Riwayah Bar
+                        Row(
+                          children: [
+                            // Reciter chip (tap to switch Sheikh)
+                            InkWell(
+                              onTap: _openReciterPickerModal,
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: sageColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.record_voice_over, size: 14, color: sageColor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _selectedReciter.nameAr,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: sageColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Icon(Icons.arrow_drop_down, size: 16, color: sageColor),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Ayah Range & Mode Chip
+                            Expanded(
+                              child: Text(
+                                'الآيات $_startAyah-$_endAyah • ${_repetitionMode == HifzRepetitionMode.combinedBlock ? 'مجمع ($_blockRepeat×)' : 'فردي'}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -947,7 +1522,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                 if (_isLoadingVerses)
                   const Center(
                     child: Padding(
-                      padding: EdgeInsets.all(32),
+                      padding: EdgeInsets.all(40),
                       child: CircularProgressIndicator(),
                     ),
                   )
@@ -1027,14 +1602,14 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 CircleAvatar(
-                                  radius: 13,
+                                  radius: 14,
                                   backgroundColor: isCurrent
                                       ? sageColor
                                       : (isPeeked ? sageColor : (isDark ? Colors.white12 : Colors.black12)),
                                   child: Text(
                                     '$ayahNum',
                                     style: TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 12,
                                       color: (isCurrent || isPeeked) ? Colors.white : textColor,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -1060,7 +1635,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                                   Text(
                                     isPeeked ? 'كشف مؤقت (2.5ث)' : 'انقر للكشف',
                                     style: TextStyle(
-                                      fontSize: 10,
+                                      fontSize: 11,
                                       color: isPeeked ? sageColor : Colors.grey,
                                       fontWeight: isPeeked ? FontWeight.bold : FontWeight.normal,
                                     ),
@@ -1082,17 +1657,17 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
           // Floating Translucent Bottom Control Pill
           Positioned(
             bottom: 24,
-            left: 20,
-            right: 20,
+            left: 16,
+            right: 16,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
                     color: (isDark ? ZenTheme.darkSurface : ZenTheme.lightSurface)
-                        .withValues(alpha: 0.88),
+                        .withValues(alpha: 0.90),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
                       color: sageColor.withValues(alpha: 0.35),
@@ -1116,8 +1691,8 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                             Text(
                               isPlaying || isPaused
                                   ? (_sessionState.isGroupPhase
-                                      ? 'المجموعة المترابطة • تكرار ${_sessionState.groupLoop}/${_sessionState.totalGroupLoops}'
-                                      : 'آية ${currentSurahInfo.nameAr}:$currentAyah • تكرار $currentLoop/$totalLoops')
+                                      ? 'المجموعة • تكرار ${_sessionState.groupLoop}/${_sessionState.totalGroupLoops}'
+                                      : 'آية $currentAyah • تكرار $currentLoop/$totalLoops')
                                   : '${currentSurahInfo.nameAr} ($_startAyah - $_endAyah)',
                               style: TextStyle(
                                 fontSize: 13,
@@ -1178,34 +1753,35 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       // Audio Controls
                       if (isPlaying) ...[
                         IconButton(
-                          icon: const Icon(Icons.pause, color: Colors.amber),
+                          icon: const Icon(Icons.pause, color: Colors.amber, size: 26),
                           onPressed: _pauseSession,
                           tooltip: 'إيقاف مؤقت',
                         ),
                         IconButton(
-                          icon: const Icon(Icons.stop, color: Colors.redAccent),
+                          icon: const Icon(Icons.stop, color: Colors.redAccent, size: 26),
                           onPressed: _stopSession,
                           tooltip: 'إنهاء الجلسة',
                         ),
                       ] else if (isPaused) ...[
                         IconButton(
-                          icon: Icon(Icons.play_arrow, color: sageColor),
+                          icon: Icon(Icons.play_arrow, color: sageColor, size: 28),
                           onPressed: _resumeSession,
                           tooltip: 'متابعة التكرار',
                         ),
                         IconButton(
-                          icon: const Icon(Icons.stop, color: Colors.redAccent),
+                          icon: const Icon(Icons.stop, color: Colors.redAccent, size: 26),
                           onPressed: _stopSession,
                           tooltip: 'إنهاء الجلسة',
                         ),
                       ] else
                         ElevatedButton.icon(
                           onPressed: _startSession,
-                          icon: const Icon(Icons.play_arrow, size: 18),
-                          label: const Text('بدء التكرار'),
+                          icon: const Icon(Icons.play_arrow, size: 20),
+                          label: const Text('بدء التكرار', style: TextStyle(fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: sageColor,
                             foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
