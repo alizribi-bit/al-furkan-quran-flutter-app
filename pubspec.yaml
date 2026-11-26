@@ -1,0 +1,49 @@
+name: itqan_quran_zen
+description: "Itqan Quran - Distraction-free Quran Memorization and Live Halaqa App"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Local offline fast storage
+  hive_ce: ^2.0.0
+  hive_ce_flutter: ^2.0.0
+
+  # Audio playback (Quran, Mutun, Anashid)
+  just_audio: ^0.10.6
+
+  # Strict full-screen alarms
+  alarm: ^5.15.0
+
+  # Cryptographic utilities
+  crypto: ^3.0.6
+
+  # UI & utilities
+  intl: ^0.19.0
+  path_provider: ^2.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/app_icon.png
+    - assets/quran_script/
+    - assets/adhan/
+
+  fonts:
+    - family: KFGQPCUthmanic
+      fonts:
+        - asset: assets/fonts/KFGQPC_Uthmanic_Hafs.otf
