@@ -46,4 +46,16 @@ flutter:
   fonts:
     - family: KFGQPCUthmanic
       fonts:
-        - asset: assets/fonts/KFGQPC_Uthmanic_Hafs.otf
+        - asset: assets/fonts/KFGQPC_Hafs.ttf
+    - family: KFGQPCHafs
+      fonts:
+        - asset: assets/fonts/KFGQPC_Hafs.ttf
+    - family: KFGQPCWarsh
+      fonts:
+        - asset: assets/fonts/KFGQPC_Warsh.ttf
+    - family: KFGQPCQaloon
+      fonts:
+        - asset: assets/fonts/KFGQPC_Qaloon.ttf
+    - family: KFGQPCDoori
+      fonts:
+        - asset: assets/fonts/KFGQPC_Doori.ttf

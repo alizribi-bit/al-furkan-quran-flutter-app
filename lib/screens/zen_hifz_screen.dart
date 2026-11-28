@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:hive_ce_flutter/hive_ce_flutter.dart';
 import '../core/theme/zen_theme.dart';
 import '../core/audio/audio_player_service.dart';
 import '../core/audio/reciters_data.dart';
@@ -45,8 +46,9 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
   int _pauseDelaySeconds = 4;
   double _playbackSpeed = 1.0;
 
-  // Selected Reciter
+  // Selected Reciter & Favorites
   late HifzReciter _selectedReciter;
+  Set<String> _favoriteReciterIds = {};
 
   // Loaded verses from dynamic JSON
   List<Map<String, dynamic>> _loadedVerses = [];
@@ -59,6 +61,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
   @override
   void initState() {
     super.initState();
+    _loadFavoriteReciters();
     _selectedReciter = QuranRecitersData.getDefault(_riwayah);
     _loadVerses();
 
@@ -80,16 +83,57 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     });
   }
 
+  void _loadFavoriteReciters() {
+    try {
+      if (Hive.isBoxOpen('hifz_box')) {
+        final saved = Hive.box('hifz_box').get('favorite_reciters');
+        if (saved is List) {
+          _favoriteReciterIds = saved.map((e) => e.toString()).toSet();
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _toggleFavoriteReciter(String reciterId) {
+    setState(() {
+      if (_favoriteReciterIds.contains(reciterId)) {
+        _favoriteReciterIds.remove(reciterId);
+      } else {
+        _favoriteReciterIds.add(reciterId);
+      }
+    });
+    try {
+      if (Hive.isBoxOpen('hifz_box')) {
+        Hive.box('hifz_box').put('favorite_reciters', _favoriteReciterIds.toList());
+      }
+    } catch (_) {}
+  }
+
+  void _switchRiwayah(String newRiwayah) {
+    setState(() {
+      _riwayah = newRiwayah;
+      if (_selectedReciter.riwayah != newRiwayah) {
+        _selectedReciter = QuranRecitersData.getDefault(newRiwayah);
+      }
+    });
+    _loadVerses();
+  }
+
   Future<void> _loadVerses() async {
     setState(() => _isLoadingVerses = true);
     try {
       final verses = await QuranScriptService.getVersesForSurah(
         surahNumber: _surah,
-        riwayah: _riwayah == 'duri' ? 'hafs' : _riwayah,
+        riwayah: _riwayah,
       );
       if (mounted) {
         setState(() {
           _loadedVerses = verses;
+          if (verses.isNotEmpty) {
+            final maxAyah = verses.length;
+            if (_endAyah > maxAyah) _endAyah = maxAyah;
+            if (_startAyah > _endAyah) _startAyah = 1;
+          }
           _isLoadingVerses = false;
         });
       }
@@ -180,14 +224,16 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
         pauseDelaySeconds: _pauseDelaySeconds,
         playbackSpeed: _playbackSpeed,
         reciterCdnPattern: _selectedReciter.cdnPattern,
+        audioMode: _selectedReciter.audioMode,
+        mp3QuranReadId: _selectedReciter.mp3QuranReadId,
       ),
     );
   }
 
   void _cyclePlaybackSpeed() {
-    final speeds = [0.75, 1.0, 1.25, 1.5];
-    final nextIndex = (speeds.indexOf(_playbackSpeed) + 1) % speeds.length;
-    final nextSpeed = speeds[nextIndex];
+    const speeds = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+    final currentIdx = speeds.indexOf(_playbackSpeed);
+    final nextSpeed = speeds[(currentIdx + 1) % speeds.length];
     setState(() {
       _playbackSpeed = nextSpeed;
     });
@@ -348,7 +394,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
     );
   }
 
-  /// Modal to choose Reciter (الشيخ / القارئ المعتمد) with filters & pedagogical notes
+  /// 200+ Live Reciter Explorer Bottom Sheet (Riwayah + Hadr/Murattal/Muallim/Favorites + Scope)
   void _openReciterPickerModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ZenTheme.darkAmberText : ZenTheme.lightText;
@@ -362,39 +408,96 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (context) {
-        String activeFilter = _riwayah;
+        String activeRiwayah = _riwayah;
+        String activeStyle = 'all'; // 'all', 'hadr', 'murattal', 'muallim', 'favorites'
+        String activeScope = 'all'; // 'all', 'ayah', 'surah'
+        String searchQuery = '';
+        bool isLoadingCatalog = true;
+        bool startedFetch = false;
+
         return StatefulBuilder(
           builder: (context, setPickerState) {
-            final reciters = activeFilter == 'all'
-                ? QuranRecitersData.all
-                : QuranRecitersData.getByRiwayah(activeFilter);
+            if (!startedFetch) {
+              startedFetch = true;
+              QuranRecitersData.loadFullCatalog().then((_) {
+                if (context.mounted) {
+                  setPickerState(() => isLoadingCatalog = false);
+                }
+              });
+            }
+
+            final allCatalog = QuranRecitersData.all;
+            int countRiwayah(String rId) => rId == 'all'
+                ? allCatalog.length
+                : allCatalog.where((r) => r.riwayah == rId).length;
+
+            final filteredReciters = allCatalog.where((r) {
+              if (activeRiwayah != 'all' && r.riwayah != activeRiwayah) return false;
+              if (activeStyle == 'favorites') {
+                if (!_favoriteReciterIds.contains(r.id)) return false;
+              } else if (activeStyle != 'all' && r.styleCategory != activeStyle) {
+                return false;
+              }
+              if (activeScope == 'ayah' && r.audioMode == 'surah_stream') return false;
+              if (activeScope == 'surah' && r.audioMode != 'surah_stream') return false;
+              if (searchQuery.trim().isNotEmpty) {
+                final q = searchQuery.trim().toLowerCase();
+                if (!r.nameAr.toLowerCase().contains(q) &&
+                    !r.nameEn.toLowerCase().contains(q) &&
+                    !r.style.toLowerCase().contains(q)) {
+                  return false;
+                }
+              }
+              return true;
+            }).toList();
 
             return Container(
-              height: MediaQuery.of(context).size.height * 0.75,
-              padding: const EdgeInsets.only(top: 20, left: 20, right: 20),
+              height: MediaQuery.of(context).size.height * 0.86,
+              padding: const EdgeInsets.only(top: 18, left: 16, right: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'اختيار الشيخ والقارئ المعتمد',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'مكتبة القراء الكبرى (${allCatalog.length})',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                  ),
+                                ),
+                                if (isLoadingCatalog) ...[
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: sageColor,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'قراء متقنون موثوقو الروايات من السحابة الصوتية المباشرة',
-                            style: TextStyle(fontSize: 12, color: sageColor, fontWeight: FontWeight.w600),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Text(
+                              'حدر سريع للتكرار (1.5×) • مرتل • معلم • ٤ روايات أصيلة',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: sageColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close),
@@ -402,31 +505,52 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // Riwayah Filter Chips
+                  // Search Bar
+                  TextField(
+                    onChanged: (val) => setPickerState(() => searchQuery = val),
+                    style: TextStyle(color: textColor, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'ابحث باسم الشيخ (مثلاً: الشريم، ياسر سلامة، الحصري، الكزابري)...',
+                      hintStyle: const TextStyle(fontSize: 12),
+                      prefixIcon: Icon(Icons.search, color: sageColor, size: 20),
+                      filled: true,
+                      fillColor: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Row 1: Riwayah Filter Chips with Live Counts
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        {'id': 'all', 'label': 'جميع القراء (${QuranRecitersData.all.length})'},
-                        {'id': 'hafs', 'label': 'حفص عن عاصم'},
-                        {'id': 'warsh', 'label': 'ورش عن نافع'},
-                        {'id': 'qalun', 'label': 'قالون عن نافع'},
-                        {'id': 'duri', 'label': 'الدوري عن أبي عمرو'},
+                        {'id': 'all', 'label': 'الكل (${countRiwayah('all')})'},
+                        {'id': 'hafs', 'label': 'حفص (${countRiwayah('hafs')})'},
+                        {'id': 'warsh', 'label': 'ورش (${countRiwayah('warsh')})'},
+                        {'id': 'qalun', 'label': 'قالون (${countRiwayah('qalun')})'},
+                        {'id': 'duri', 'label': 'الدوري (${countRiwayah('duri')})'},
                       ].map((chip) {
                         final id = chip['id']!;
                         final label = chip['label']!;
-                        final isSel = activeFilter == id;
+                        final isSel = activeRiwayah == id;
                         return Padding(
                           padding: const EdgeInsets.only(left: 6),
                           child: InkWell(
-                            onTap: () => setPickerState(() => activeFilter = id),
+                            onTap: () => setPickerState(() => activeRiwayah = id),
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
                               decoration: BoxDecoration(
-                                color: isSel ? sageColor : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                                color: isSel
+                                    ? sageColor
+                                    : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: isSel ? sageColor : Colors.transparent),
                               ),
@@ -444,105 +568,255 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                       }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 8),
 
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: reciters.length,
-                      separatorBuilder: (ctx, i) => const SizedBox(height: 8),
-                      itemBuilder: (context, idx) {
-                        final reciter = reciters[idx];
-                        final isSelected = reciter.id == _selectedReciter.id;
-
-                        return InkWell(
-                          onTap: () {
-                            setState(() {
-                              _selectedReciter = reciter;
-                              _riwayah = reciter.riwayah;
-                            });
-                            _loadVerses();
-                            Navigator.pop(context);
-                          },
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? sageColor.withValues(alpha: 0.15)
-                                  : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04)),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isSelected ? sageColor : Colors.transparent,
-                                width: isSelected ? 2 : 1,
+                  // Row 2: Style Filter Tabs (Hadr / Murattal / Muallim / Favorites)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        {'id': 'all', 'label': 'جميع الأنماط'},
+                        {'id': 'hadr', 'label': '⚡ حدر سريع (1.5×)'},
+                        {'id': 'murattal', 'label': 'مرتل متوازن'},
+                        {'id': 'muallim', 'label': 'معلم للتحفيظ'},
+                        {'id': 'favorites', 'label': '★ مفضلتي (${_favoriteReciterIds.length})'},
+                      ].map((tab) {
+                        final id = tab['id']!;
+                        final isSel = activeStyle == id;
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: InkWell(
+                            onTap: () => setPickerState(() => activeStyle = id),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? Colors.amber.withValues(alpha: 0.22)
+                                    : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04)),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSel ? Colors.amber : Colors.transparent,
+                                ),
+                              ),
+                              child: Text(
+                                tab['label']!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSel
+                                      ? (isDark ? Colors.amber[300] : Colors.amber[900])
+                                      : textColor,
+                                ),
                               ),
                             ),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: isSelected
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Row 3: Audio Scope Filter (All | Ayah-by-Ayah | Full Surah)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'النتائج: ${filteredReciters.length} قارئ',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[500], fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      ...[
+                        {'id': 'all', 'label': 'الكل'},
+                        {'id': 'ayah', 'label': 'آية بآية'},
+                        {'id': 'surah', 'label': 'سورة كاملة'},
+                      ].map((scope) {
+                        final id = scope['id']!;
+                        final isSel = activeScope == id;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 5),
+                          child: InkWell(
+                            onTap: () => setPickerState(() => activeScope = id),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? sageColor.withValues(alpha: 0.2)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSel
                                       ? sageColor
-                                      : (isDark ? Colors.white12 : Colors.black12),
-                                  child: Icon(
-                                    Icons.record_voice_over,
-                                    color: isSelected ? Colors.white : sageColor,
-                                    size: 20,
-                                  ),
+                                      : Colors.grey.withValues(alpha: 0.3),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                              ),
+                              child: Text(
+                                scope['label']!,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSel ? sageColor : textColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  Expanded(
+                    child: filteredReciters.isEmpty
+                        ? Center(
+                            child: Text(
+                              'لا يوجد قارئ مطابق لهذا الفلتر حالياً',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: filteredReciters.length,
+                            separatorBuilder: (ctx, i) => const SizedBox(height: 8),
+                            itemBuilder: (context, idx) {
+                              final reciter = filteredReciters[idx];
+                              final isSelected = reciter.id == _selectedReciter.id;
+                              final isFav = _favoriteReciterIds.contains(reciter.id);
+                              final isAyahMode = reciter.audioMode != 'surah_stream';
+
+                              return InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedReciter = reciter;
+                                    _riwayah = reciter.riwayah;
+                                  });
+                                  _loadVerses();
+                                  Navigator.pop(context);
+                                },
+                                borderRadius: BorderRadius.circular(16),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? sageColor.withValues(alpha: 0.15)
+                                        : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04)),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: isSelected ? sageColor : Colors.transparent,
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
                                     children: [
-                                      Row(
-                                        children: [
-                                          Text(
-                                            reciter.nameAr,
-                                            style: TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.bold,
-                                              color: textColor,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          if (reciter.tempo == 'slow')
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: sageColor.withValues(alpha: 0.2),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Text('متأنٍّ', style: TextStyle(fontSize: 10, color: sageColor, fontWeight: FontWeight.bold)),
-                                            ),
-                                        ],
+                                      CircleAvatar(
+                                        radius: 20,
+                                        backgroundColor: isSelected
+                                            ? sageColor
+                                            : (isDark ? Colors.white12 : Colors.black12),
+                                        child: Icon(
+                                          isAyahMode ? Icons.record_voice_over : Icons.library_music,
+                                          color: isSelected ? Colors.white : sageColor,
+                                          size: 18,
+                                        ),
                                       ),
-                                      const SizedBox(height: 2),
-                                      if (reciter.pedagogicalNote != null)
-                                        Text(
-                                          reciter.pedagogicalNote!,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Wrap(
+                                              spacing: 5,
+                                              runSpacing: 4,
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              children: [
+                                                Text(
+                                                  reciter.nameAr,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: textColor,
+                                                  ),
+                                                ),
+                                                if (reciter.fastFriendly || reciter.styleCategory == 'hadr')
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.amber.withValues(alpha: 0.2),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      'حدر سريع',
+                                                      style: TextStyle(
+                                                        fontSize: 9,
+                                                        color: isDark ? Colors.amber[300] : Colors.amber[900],
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                  decoration: BoxDecoration(
+                                                    color: isAyahMode
+                                                        ? sageColor.withValues(alpha: 0.18)
+                                                        : Colors.blueGrey.withValues(alpha: 0.18),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    reciter.audioMode == 'ayah_timed'
+                                                        ? 'آية بآية • بدون فجوات'
+                                                        : (reciter.audioMode == 'ayah_direct'
+                                                            ? 'آية بآية'
+                                                            : 'سورة كاملة'),
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      color: isAyahMode ? sageColor : Colors.blueGrey[300],
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              reciter.pedagogicalNote ?? reciter.style,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          isFav ? Icons.star : Icons.star_border,
+                                          color: isFav ? Colors.amber : Colors.grey,
+                                          size: 20,
+                                        ),
+                                        onPressed: () {
+                                          _toggleFavoriteReciter(reciter.id);
+                                          setPickerState(() {});
+                                        },
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                      ),
+                                      if (isSelected)
+                                        Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: sageColor,
+                                            shape: BoxShape.circle,
                                           ),
+                                          child: const Icon(Icons.check, color: Colors.white, size: 14),
                                         ),
                                     ],
                                   ),
                                 ),
-                                if (isSelected)
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: sageColor,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(Icons.check, color: Colors.white, size: 16),
-                                  ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -882,7 +1156,9 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final currentSurahInfo = QuranSurahs.getByNumber(_surah);
-            final maxAyah = currentSurahInfo.versesCount;
+            final maxAyah = _loadedVerses.isNotEmpty
+                ? _loadedVerses.length
+                : currentSurahInfo.versesCount;
 
             return SingleChildScrollView(
               padding: EdgeInsets.only(
@@ -1552,7 +1828,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                   ),
                   const SizedBox(height: 18),
 
-                  // 8. PLAYBACK SPEED (سرعة الصوت)
+                  // 8. PLAYBACK SPEED (سرعة الصوت — حتى 2.0× للتحفيظ السريع)
                   Text(
                     'سرعة التلاوة والصوت (${_playbackSpeed}x)',
                     style: TextStyle(
@@ -1563,25 +1839,25 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                   ),
                   const SizedBox(height: 8),
                   Row(
-                    children: [0.75, 1.0, 1.25, 1.5].map((speed) {
+                    children: [0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((speed) {
                       final isSelected = _playbackSpeed == speed;
                       return Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 2.5),
                           child: InkWell(
                             onTap: () {
                               setSheetState(() => _playbackSpeed = speed);
                               setState(() => _playbackSpeed = speed);
                               _audioPlayer.setSpeed(speed);
                             },
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(12),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 11),
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? sageColor
                                     : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: isSelected ? sageColor : Colors.transparent,
                                   width: isSelected ? 2 : 1,
@@ -1591,7 +1867,7 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                               child: Text(
                                 '${speed}x',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: isSelected ? Colors.white : textColor,
                                 ),
@@ -1777,49 +2053,154 @@ class _ZenHifzScreenState extends State<ZenHifzScreen> {
                         ),
                         const SizedBox(height: 8),
 
-                        // Subtitle with Reciter & Riwayah Bar
+                        // Subtitle with Reciter Explorer & Ayah Range
                         Row(
                           children: [
-                            // Reciter chip (tap to switch Sheikh)
-                            InkWell(
-                              onTap: _openReciterPickerModal,
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: sageColor.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.record_voice_over, size: 14, color: sageColor),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      _selectedReciter.nameAr,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
+                            // Reciter chip (tap to open 200+ Reciter Explorer)
+                            Flexible(
+                              child: InkWell(
+                                onTap: _openReciterPickerModal,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: sageColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: sageColor.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _selectedReciter.audioMode == 'surah_stream'
+                                            ? Icons.library_music
+                                            : Icons.record_voice_over,
+                                        size: 14,
                                         color: sageColor,
                                       ),
-                                    ),
-                                    const SizedBox(width: 2),
-                                    Icon(Icons.arrow_drop_down, size: 16, color: sageColor),
-                                  ],
+                                      const SizedBox(width: 5),
+                                      Flexible(
+                                        child: Text(
+                                          _selectedReciter.nameAr,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: sageColor,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Icon(Icons.arrow_drop_down, size: 16, color: sageColor),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 8),
 
                             // Ayah Range & Mode Chip
-                            Expanded(
-                              child: Text(
-                                'الآيات $_startAyah-$_endAyah • ${_repetitionMode == HifzRepetitionMode.goldenLoop ? 'الحلقة الذهبية (أ-د)' : (_repetitionMode == HifzRepetitionMode.combinedBlock ? 'مجمع' : 'فردي')}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                            Text(
+                              'الآيات $_startAyah-$_endAyah',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.grey[400] : Colors.grey[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Instant 4-Riwayah Authentic KFGQPC Mushaf Switcher
+                        Row(
+                          children: [
+                            {'id': 'hafs', 'label': 'حفص'},
+                            {'id': 'warsh', 'label': 'ورش'},
+                            {'id': 'qalun', 'label': 'قالون'},
+                            {'id': 'duri', 'label': 'الدوري'},
+                          ].map((item) {
+                            final id = item['id']!;
+                            final isSel = _riwayah == id;
+                            return Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 2.5),
+                                child: InkWell(
+                                  onTap: () => _switchRiwayah(id),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 7),
+                                    decoration: BoxDecoration(
+                                      color: isSel
+                                          ? sageColor
+                                          : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04)),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isSel ? sageColor : Colors.transparent,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      item['label']!,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: isSel ? Colors.white : textColor,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Instant Fast-Hifz Speed Strip (1.0x -> 2.0x)
+                        Row(
+                          children: [
+                            Icon(Icons.speed, size: 15, color: sageColor),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Row(
+                                children: [1.0, 1.25, 1.5, 1.75, 2.0].map((spd) {
+                                  final isSel = _playbackSpeed == spd;
+                                  return Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                                      child: InkWell(
+                                        onTap: () {
+                                          setState(() => _playbackSpeed = spd);
+                                          _audioPlayer.setSpeed(spd);
+                                        },
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: isSel
+                                                ? sageColor.withValues(alpha: 0.22)
+                                                : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: isSel
+                                                  ? sageColor
+                                                  : Colors.grey.withValues(alpha: 0.25),
+                                            ),
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            '${spd}×',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSel ? sageColor : textColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
                               ),
                             ),
                           ],

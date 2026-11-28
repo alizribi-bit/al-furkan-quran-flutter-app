@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/zen_theme.dart';
 import '../core/audio/audio_player_service.dart';
+import '../core/quran/surah_data.dart';
 
 /// Authentic Flowing Mushaf Book Page Widget for Flutter
 /// Renders ayahs as continuous justified Uthmanic prose inside a double-rule
@@ -85,6 +86,18 @@ class _MushafBookPageState extends State<MushafBookPage> {
     }
   }
 
+  String _basmalahForRiwayah(String code) {
+    switch (code) {
+      case 'warsh':
+      case 'qalun':
+        return 'بِسْمِ اِ۬للَّهِ اِ۬لرَّحْمَٰنِ اِ۬لرَّحِيمِ';
+      case 'duri':
+        return 'بِسۡمِ اِ۬للَّهِ اِ۬لرَّحۡمَٰنِ اِ۬لرَّحِيمِ';
+      default:
+        return 'بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ';
+    }
+  }
+
   (String, String) _splitFirstWord(String text) {
     final trimmed = text.trim();
     final idx = trimmed.indexOf(' ');
@@ -112,9 +125,13 @@ class _MushafBookPageState extends State<MushafBookPage> {
     final dividerColor =
         isDark ? const Color(0xFF24322B) : const Color(0xFFE8E0D0);
 
-    final showBasmalah = widget.surahNumber != 1 &&
-        widget.surahNumber != 9 &&
-        widget.startAyah == 1;
+    final activeFontFamily =
+        QuranScriptService.fontFamilyForRiwayah(widget.riwayah);
+
+    // In Hafs, Surah 1 Ayah 1 IS the Basmalah; in Warsh, Qalun & Al-Duri, Ayah 1 starts at Al-Hamdu lillah
+    final showBasmalah = widget.surahNumber != 9 &&
+        widget.startAyah == 1 &&
+        (widget.surahNumber != 1 || widget.riwayah != 'hafs');
 
     final List<InlineSpan> spans = [];
 
@@ -142,7 +159,7 @@ class _MushafBookPageState extends State<MushafBookPage> {
       }
 
       final baseStyle = TextStyle(
-        fontFamily: 'KFGQPCUthmanic',
+        fontFamily: activeFontFamily,
         fontSize: widget.fontSize,
         height: 2.28,
         color: isCurrent
@@ -258,7 +275,7 @@ class _MushafBookPageState extends State<MushafBookPage> {
           text: ' ﴿${MushafBookPage.toArabicIndic(ayahNum)}﴾ ',
           recognizer: recognizer,
           style: TextStyle(
-            fontFamily: 'KFGQPCUthmanic',
+            fontFamily: activeFontFamily,
             fontSize: (widget.fontSize * 0.82).clamp(18.0, 36.0),
             height: 2.28,
             fontWeight:
@@ -344,7 +361,7 @@ class _MushafBookPageState extends State<MushafBookPage> {
                   'سُورَةُ ${widget.surahNameAr}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontFamily: 'KFGQPCUthmanic',
+                    fontFamily: activeFontFamily,
                     fontSize: 24,
                     color: inkColor,
                     height: 1.5,
@@ -356,10 +373,10 @@ class _MushafBookPageState extends State<MushafBookPage> {
             if (showBasmalah) ...[
               const SizedBox(height: 14),
               Text(
-                'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ',
+                _basmalahForRiwayah(widget.riwayah),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'KFGQPCUthmanic',
+                  fontFamily: activeFontFamily,
                   fontSize: 22,
                   color: inkColor.withValues(alpha: 0.9),
                   height: 1.7,

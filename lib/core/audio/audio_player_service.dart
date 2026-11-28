@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'silent_wav_generator.dart';
@@ -57,9 +59,11 @@ class HifzVerseConfig {
   final int singleRepeatCount;// N: repeats per individual verse
   final int linkGroupRepeat;  // L: repeats for chain linking steps
   final int pauseDelaySeconds;// X: silence duration for user to recite from memory
-  final double playbackSpeed; // 0.75, 1.0, 1.25, 1.5
+  final double playbackSpeed; // 0.75, 1.0, 1.25, 1.5, 1.75, 2.0
   final String reciterCdnPattern;
   final String fallbackCdnPattern;
+  final String audioMode; // 'ayah_direct', 'ayah_timed', 'surah_stream'
+  final int? mp3QuranReadId;
 
   HifzVerseConfig({
     required this.surah,
@@ -72,9 +76,11 @@ class HifzVerseConfig {
     this.pauseDelaySeconds = 4,
     this.playbackSpeed = 1.0,
     this.reciterCdnPattern =
-        'https://everyayah.com/data/Husary_Muallim_128kbps/{surah:03d}{ayah:03d}.mp3',
+        'https://everyayah.com/data/Yaser_Salamah_128kbps/{surah:03d}{ayah:03d}.mp3',
     this.fallbackCdnPattern =
         'https://everyayah.com/data/Alafasy_128kbps/{surah:03d}{ayah:03d}.mp3',
+    this.audioMode = 'ayah_direct',
+    this.mp3QuranReadId,
   });
 }
 
@@ -200,8 +206,9 @@ class AudioPlayerService {
     _playerStateSubscription = _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         _stopDelayTimer();
-        // If golden loop mode, transition to Phase D (active test) before completion
-        if (_activeConfig?.repetitionMode == HifzRepetitionMode.goldenLoop) {
+        // If golden loop mode (and not full-surah continuous stream), transition to Phase D (active test)
+        final isFullSurah = _activeConfig?.audioMode == 'surah_stream';
+        if (_activeConfig?.repetitionMode == HifzRepetitionMode.goldenLoop && !isFullSurah) {
           _emitState(_currentState.copyWith(
             status: HifzPlaybackStatus.testing,
             phase: GoldenLoopPhase.phaseDActiveTest,
@@ -279,32 +286,122 @@ class AudioPlayerService {
     _delayCountdownTimer = null;
   }
 
+  static final Map<String, Map<int, ({int startMs, int endMs})>> _timingCache = {};
+
   String _formatUrl(String pattern, int surah, int ayah) {
     final sStr = surah.toString().padLeft(3, '0');
     final aStr = ayah.toString().padLeft(3, '0');
     return pattern.replaceAll('{surah:03d}', sStr).replaceAll('{ayah:03d}', aStr);
   }
 
-  /// Builds a gapless sequence respecting the selected repetition mode
+  /// Fetches and caches millisecond-level ayah timestamps from MP3Quran v3 API
+  Future<Map<int, ({int startMs, int endMs})>?> _fetchAyahTimings(
+    int readId,
+    int surah,
+  ) async {
+    final key = '$readId:$surah';
+    if (_timingCache.containsKey(key)) {
+      return _timingCache[key];
+    }
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final uri = Uri.parse(
+        'https://www.mp3quran.net/api/v3/ayat_timing?surah=$surah&read=$readId',
+      );
+      final req = await client.getUrl(uri);
+      req.headers.set(HttpHeaders.userAgentHeader, 'ItqanQuran/1.0');
+      final res = await req.close();
+      if (res.statusCode != 200) return null;
+      final body = await res.transform(utf8.decoder).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! List) return null;
+
+      final map = <int, ({int startMs, int endMs})>{};
+      for (final entry in decoded) {
+        if (entry is! Map) continue;
+        final ayahNum = int.tryParse(entry['ayah']?.toString() ?? '');
+        final startMs = int.tryParse(entry['start_time']?.toString() ?? '');
+        final endMs = int.tryParse(entry['end_time']?.toString() ?? '');
+        if (ayahNum != null &&
+            ayahNum > 0 &&
+            startMs != null &&
+            endMs != null &&
+            endMs > startMs) {
+          map[ayahNum] = (startMs: startMs, endMs: endMs);
+        }
+      }
+      if (map.isEmpty) return null;
+      _timingCache[key] = map;
+      return map;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Builds either a zero-gap ClippingAudioSource (for ayah_timed) or direct UriAudioSource
+  AudioSource _buildVerseSource(
+    HifzVerseConfig config,
+    int ayah,
+    AyahPlaybackTag tag,
+    Map<int, ({int startMs, int endMs})>? timings,
+  ) {
+    final url = _formatUrl(config.reciterCdnPattern, config.surah, ayah);
+    final seg = timings?[ayah];
+    if (config.audioMode == 'ayah_timed' && seg != null) {
+      return ClippingAudioSource(
+        start: Duration(milliseconds: seg.startMs),
+        end: Duration(milliseconds: seg.endMs),
+        child: AudioSource.uri(Uri.parse(url)),
+        tag: tag,
+      );
+    }
+    return AudioSource.uri(
+      Uri.parse(url),
+      tag: tag,
+    );
+  }
+
+  /// Builds a gapless sequence respecting the selected repetition mode & audio engine tier
   Future<void> prepareAndPlay(HifzVerseConfig config) async {
     try {
       _activeConfig = config;
       _stopDelayTimer();
+
+      final bool isFullSurahInitial = config.audioMode == 'surah_stream';
       _emitState(_currentState.copyWith(
         status: HifzPlaybackStatus.preparing,
         currentSurah: config.surah,
         currentAyah: config.startAyah,
         currentLoop: 1,
-        totalLoops: config.singleRepeatCount,
-        phase: config.repetitionMode == HifzRepetitionMode.goldenLoop
-            ? GoldenLoopPhase.phaseAMastery
-            : GoldenLoopPhase.phaseCConsolidation,
-        phaseLabel: config.repetitionMode == HifzRepetitionMode.goldenLoop
-            ? 'المرحلة (أ): إتقان الآية منفردة'
-            : (config.repetitionMode == HifzRepetitionMode.combinedBlock
-                ? 'تكرار المقطع مجمعاً'
-                : 'تكرار آية بآية'),
+        totalLoops: isFullSurahInitial ? config.blockRepeatCount : config.singleRepeatCount,
+        phase: isFullSurahInitial
+            ? GoldenLoopPhase.phaseCConsolidation
+            : (config.repetitionMode == HifzRepetitionMode.goldenLoop
+                ? GoldenLoopPhase.phaseAMastery
+                : GoldenLoopPhase.phaseCConsolidation),
+        phaseLabel: isFullSurahInitial
+            ? 'جاري تجهيز تلاوة السورة كاملة...'
+            : (config.repetitionMode == HifzRepetitionMode.goldenLoop
+                ? 'المرحلة (أ): إتقان الآية منفردة'
+                : (config.repetitionMode == HifzRepetitionMode.combinedBlock
+                    ? 'تكرار المقطع مجمعاً'
+                    : 'تكرار آية بآية')),
       ));
+
+      // Fetch millisecond timestamps if using MP3Quran v3 ayah_timed reciter
+      Map<int, ({int startMs, int endMs})>? timings;
+      bool fallbackToFullSurah = isFullSurahInitial;
+      if (config.audioMode == 'ayah_timed' && config.mp3QuranReadId != null) {
+        timings = await _fetchAyahTimings(config.mp3QuranReadId!, config.surah);
+        if (timings == null || !timings.containsKey(config.startAyah)) {
+          fallbackToFullSurah = true;
+        }
+      } else if (config.audioMode == 'ayah_timed') {
+        fallbackToFullSurah = true;
+      }
 
       final sources = <AudioSource>[];
 
@@ -317,18 +414,53 @@ class AudioPlayerService {
         silentSource = AudioSource.file(silentFile.path);
       }
 
-      if (config.repetitionMode == HifzRepetitionMode.goldenLoop) {
+      if (fallbackToFullSurah) {
+        // =====================================================================
+        // FULL-SURAH STREAMING LOOP (تلاوة السورة كاملة للمراجعة السريعة والحدر)
+        // =====================================================================
+        final surahUrl = _formatUrl(config.reciterCdnPattern, config.surah, 1);
+        final loops = config.blockRepeatCount > 0 ? config.blockRepeatCount : 1;
+        for (int bLoop = 1; bLoop <= loops; bLoop++) {
+          sources.add(AudioSource.uri(
+            Uri.parse(surahUrl),
+            tag: AyahPlaybackTag(
+              surah: config.surah,
+              ayah: config.startAyah,
+              loopIndex: bLoop,
+              totalLoops: loops,
+              isSilence: false,
+              phase: GoldenLoopPhase.phaseCConsolidation,
+              phaseLabel: 'تلاوة السورة كاملة • تكرار $bLoop من $loops',
+            ),
+          ));
+
+          if (silentSource != null && bLoop < loops) {
+            sources.add(AudioSource.uri(
+              (silentSource as UriAudioSource).uri,
+              tag: AyahPlaybackTag(
+                surah: config.surah,
+                ayah: config.startAyah,
+                loopIndex: bLoop,
+                totalLoops: loops,
+                isSilence: true,
+                phase: GoldenLoopPhase.phaseCConsolidation,
+                phaseLabel: 'استراحة قصيرة قبل إعادة السورة...',
+              ),
+            ));
+          }
+        }
+      } else if (config.repetitionMode == HifzRepetitionMode.goldenLoop) {
         // =====================================================================
         // THE GOLDEN LOOP PEDAGOGICAL SPECIFICATION (الحلقة الذهبية المتقنة)
         // =====================================================================
 
         // --- PHASE A: INDIVIDUAL VERSE MASTERY (إتقان الآيات منفردة) ---
         for (int a = config.startAyah; a <= config.endAyah; a++) {
-          final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
           for (int loop = 1; loop <= config.singleRepeatCount; loop++) {
-            sources.add(AudioSource.uri(
-              Uri.parse(url),
-              tag: AyahPlaybackTag(
+            sources.add(_buildVerseSource(
+              config,
+              a,
+              AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
                 loopIndex: loop,
@@ -337,6 +469,7 @@ class AudioPlayerService {
                 phase: GoldenLoopPhase.phaseAMastery,
                 phaseLabel: 'المرحلة (أ): إتقان الآية $a منفردة',
               ),
+              timings,
             ));
 
             if (silentSource != null) {
@@ -365,10 +498,10 @@ class AudioPlayerService {
             stepCount++;
             for (int lLoop = 1; lLoop <= config.linkGroupRepeat; lLoop++) {
               for (int a = config.startAyah; a <= endChain; a++) {
-                final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
-                sources.add(AudioSource.uri(
-                  Uri.parse(url),
-                  tag: AyahPlaybackTag(
+                sources.add(_buildVerseSource(
+                  config,
+                  a,
+                  AyahPlaybackTag(
                     surah: config.surah,
                     ayah: a,
                     loopIndex: lLoop,
@@ -379,6 +512,7 @@ class AudioPlayerService {
                     chainStep: stepCount,
                     totalChainSteps: totalSteps,
                   ),
+                  timings,
                 ));
               }
 
@@ -406,10 +540,10 @@ class AudioPlayerService {
         // --- PHASE C: FULL BLOCK CONSOLIDATION (تثبيت المقطع كاملاً مجمعاً) ---
         for (int bLoop = 1; bLoop <= config.blockRepeatCount; bLoop++) {
           for (int a = config.startAyah; a <= config.endAyah; a++) {
-            final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
-            sources.add(AudioSource.uri(
-              Uri.parse(url),
-              tag: AyahPlaybackTag(
+            sources.add(_buildVerseSource(
+              config,
+              a,
+              AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
                 loopIndex: bLoop,
@@ -418,6 +552,7 @@ class AudioPlayerService {
                 phase: GoldenLoopPhase.phaseCConsolidation,
                 phaseLabel: 'المرحلة (ج): تثبيت المقطع مجمعاً بالكامل',
               ),
+              timings,
             ));
           }
 
@@ -440,10 +575,10 @@ class AudioPlayerService {
         // Simple Combined block mode
         for (int bLoop = 1; bLoop <= config.blockRepeatCount; bLoop++) {
           for (int a = config.startAyah; a <= config.endAyah; a++) {
-            final url = _formatUrl(config.reciterCdnPattern, config.surah, a);
-            sources.add(AudioSource.uri(
-              Uri.parse(url),
-              tag: AyahPlaybackTag(
+            sources.add(_buildVerseSource(
+              config,
+              a,
+              AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
                 loopIndex: bLoop,
@@ -452,6 +587,7 @@ class AudioPlayerService {
                 phase: GoldenLoopPhase.phaseCConsolidation,
                 phaseLabel: 'تكرار المقطع مجمعاً',
               ),
+              timings,
             ));
           }
 
@@ -473,11 +609,11 @@ class AudioPlayerService {
       } else {
         // Simple Single Verses Repetition (N times each)
         for (int a = config.startAyah; a <= config.endAyah; a++) {
-          final primaryUrl = _formatUrl(config.reciterCdnPattern, config.surah, a);
           for (int loop = 1; loop <= config.singleRepeatCount; loop++) {
-            sources.add(AudioSource.uri(
-              Uri.parse(primaryUrl),
-              tag: AyahPlaybackTag(
+            sources.add(_buildVerseSource(
+              config,
+              a,
+              AyahPlaybackTag(
                 surah: config.surah,
                 ayah: a,
                 loopIndex: loop,
@@ -486,6 +622,7 @@ class AudioPlayerService {
                 phase: GoldenLoopPhase.phaseAMastery,
                 phaseLabel: 'تكرار الآية $a',
               ),
+              timings,
             ));
 
             if (silentSource != null) {
@@ -512,7 +649,7 @@ class AudioPlayerService {
       );
 
       await _player.setAudioSource(playlist, preload: true);
-      await _player.setSpeed(config.playbackSpeed);
+      await _player.setSpeed(config.playbackSpeed.clamp(0.5, 2.0));
 
       // CRITICAL: Prevent UI freeze by avoiding direct await on player.play()
       unawaited(_player.play());
@@ -529,7 +666,7 @@ class AudioPlayerService {
 
   Future<void> setSpeed(double speed) async {
     try {
-      await _player.setSpeed(speed);
+      await _player.setSpeed(speed.clamp(0.5, 2.0));
     } catch (e) {
       if (kDebugMode) {
         print('Error updating speed: $e');

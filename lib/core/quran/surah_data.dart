@@ -149,15 +149,30 @@ class QuranSurahs {
 class QuranScriptService {
   static final Map<String, Map<String, dynamic>> _cache = {};
 
+  static String fontFamilyForRiwayah(String riwayah) {
+    switch (riwayah) {
+      case 'warsh':
+        return 'KFGQPCWarsh';
+      case 'qalun':
+        return 'KFGQPCQaloon';
+      case 'duri':
+        return 'KFGQPCDoori';
+      default:
+        return 'KFGQPCHafs';
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getVersesForSurah({
     required int surahNumber,
-    required String riwayah, // 'hafs', 'warsh', 'qalun'
+    required String riwayah, // 'hafs', 'warsh', 'qalun', 'duri'
   }) async {
     String filename;
     if (riwayah == 'warsh') {
       filename = 'assets/quran_script/Warsh.json';
     } else if (riwayah == 'qalun') {
       filename = 'assets/quran_script/Qalun.json';
+    } else if (riwayah == 'duri') {
+      filename = 'assets/quran_script/Duri.json';
     } else {
       filename = 'assets/quran_script/Uthmani.json';
     }
